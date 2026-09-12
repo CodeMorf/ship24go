@@ -2,6 +2,9 @@
 -- Traditional/community businesses can receive document shipments, consolidate them
 -- into manifests, route them through hubs and earn commissions.
 
+ALTER TABLE users
+  MODIFY COLUMN role ENUM('customer','support','point_operator','super_admin') NOT NULL DEFAULT 'customer';
+
 CREATE TABLE IF NOT EXISTS point_hubs (
   id CHAR(36) PRIMARY KEY,
   code VARCHAR(32) NOT NULL UNIQUE,
