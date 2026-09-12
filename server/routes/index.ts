@@ -2,7 +2,7 @@ import { Express } from 'express';
 import { createAuditRouter } from './audit.routes';
 import { createCacheRouter } from './cache.routes';
 import { createQueueRouter } from './queue.routes';
-import { createPointRouter, createAdminPointsRouter } from './point.routes';
+import { createPointRouter, createAdminPointsRouter } from './point-network.routes';
 import { createPointTrackingRouter } from './point-tracking.routes';
 
 export const registerModularRoutes = (
