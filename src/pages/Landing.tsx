@@ -1061,10 +1061,10 @@ export const Landing = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#030712] text-slate-900 dark:text-slate-100 font-sans selection:bg-cyan-500 selection:text-white transition-colors duration-300">
+    <div className="min-h-screen w-full overflow-x-clip bg-slate-50 dark:bg-[#030712] text-slate-900 dark:text-slate-100 font-sans selection:bg-cyan-500 selection:text-white transition-colors duration-300">
       
       {/* NAVBAR SUPERIOR ELEGANTE */}
-      <nav className="fixed top-0 inset-x-0 z-50 bg-white/90 dark:bg-[#030712]/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800/80 transition-all">
+      <nav className="fixed top-0 inset-x-0 z-50 bg-white/95 dark:bg-[#030712]/95 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800/80 shadow-sm shadow-slate-200/30 dark:shadow-black/20 transition-all">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-20 md:h-22">
             
@@ -1078,13 +1078,13 @@ export const Landing = () => {
                   onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.png'; }}
                 />
               </div>
-              <span className="text-2xl md:text-3xl font-black tracking-tight text-slate-900 dark:text-white font-outfit leading-none">
+              <span className="hidden sm:inline text-2xl md:text-3xl font-black tracking-tight text-slate-900 dark:text-white font-outfit leading-none">
                 SHIP<span className="text-cyan-500 dark:text-cyan-400">24</span>GO
               </span>
             </Link>
 
             {/* Desktop Nav Links - Con whitespace-nowrap para que nunca se quiebre en dos líneas */}
-            <div className="hidden lg:flex items-center space-x-6 xl:space-x-8 font-semibold text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
+            <div className="hidden lg:flex flex-1 min-w-0 items-center justify-center gap-5 xl:gap-7 font-semibold text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
               <a href="#quote-section" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navQuoter}</a>
               <Link to="/tracking" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navTracking}</Link>
               <a href="#features-section" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navServices}</a>
@@ -1093,7 +1093,7 @@ export const Landing = () => {
             </div>
 
             {/* Desktop Nav Actions */}
-            <div className="hidden md:flex items-center gap-2.5 shrink-0">
+            <div className="hidden lg:flex items-center gap-2.5 shrink-0">
               <CurrencySelector />
               <LanguageSelector />
 
@@ -1134,7 +1134,7 @@ export const Landing = () => {
             </div>
 
             {/* Botón Móvil */}
-            <div className="flex items-center gap-2 md:hidden">
+            <div className="flex items-center gap-2 lg:hidden">
               <button onClick={toggleTheme} className="p-2 text-slate-600 dark:text-slate-300">
                 {isDarkMode ? <Sun className="w-5 h-5 text-yellow-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
               </button>
@@ -1157,7 +1157,7 @@ export const Landing = () => {
 
         {/* Menú Desplegable Móvil */}
         {isMobileMenuOpen && (
-          <div className="md:hidden bg-white/95 dark:bg-[#020617]/95 border-b border-slate-200 dark:border-slate-800 px-5 py-4 space-y-3 animate-fade-in shadow-2xl">
+          <div className="lg:hidden bg-white/95 dark:bg-[#020617]/95 border-b border-slate-200 dark:border-slate-800 px-5 py-4 space-y-3 animate-fade-in shadow-2xl">
             
             {/* Header del menú móvil con logo oficial */}
             <div className="flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
@@ -1230,10 +1230,10 @@ export const Landing = () => {
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-tr from-indigo-600/20 via-cyan-500/15 to-purple-600/10 blur-[130px] rounded-full pointer-events-none -z-10" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 xl:gap-12 items-center min-w-0">
             
             {/* Columna Izquierda: Mensaje y CTA */}
-            <div className="lg:col-span-6 text-center lg:text-left space-y-6">
+            <div className="lg:col-span-6 min-w-0 text-center lg:text-left space-y-6">
               
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-indigo-500/30 bg-indigo-50/50 dark:bg-indigo-950/40 backdrop-blur-md text-indigo-700 dark:text-cyan-300 text-xs font-bold tracking-wide uppercase">
                 <Sparkles className="w-3.5 h-3.5 text-cyan-500" />
@@ -1291,7 +1291,7 @@ export const Landing = () => {
             </div>
 
             {/* Columna Derecha: Widget Interactivo de Cotización y Tracking */}
-            <div id="quote-section" className="lg:col-span-6">
+            <div id="quote-section" className="lg:col-span-6 min-w-0">
               <div className="bg-white dark:bg-[#0c1222] rounded-3xl p-6 sm:p-8 shadow-2xl shadow-indigo-950/10 border border-slate-200/80 dark:border-slate-800 relative">
                 
                 {/* Pestañas Cotizar vs Rastrear */}
@@ -1743,7 +1743,7 @@ export const Landing = () => {
             </div>
 
             {/* PLAN PRO (REAL BD: €29.99 - 10% DESCUENTO) */}
-            <div className="rounded-3xl p-8 bg-gradient-to-b from-indigo-900/10 via-white to-white dark:from-indigo-950/40 dark:via-slate-900 dark:to-slate-900 border-2 border-indigo-600 dark:border-cyan-400 shadow-2xl relative flex flex-col justify-between scale-105 z-10">
+            <div className="rounded-3xl p-8 bg-gradient-to-b from-indigo-900/10 via-white to-white dark:from-indigo-950/40 dark:via-slate-900 dark:to-slate-900 border-2 border-indigo-600 dark:border-cyan-400 shadow-2xl relative flex flex-col justify-between md:scale-105 md:z-10">
               <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gradient-to-r from-indigo-600 to-cyan-500 text-white font-black text-[10px] tracking-widest uppercase px-3 py-1 rounded-full shadow-lg">
                 {lt.mostPopular}
               </div>
