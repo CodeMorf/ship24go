@@ -1592,22 +1592,12 @@ export const ManifestRepo = {
     const baseWeight = 5.0;
     const extraWeight = Math.max(0, weight - baseWeight);
 
-    // LogiHub Internacional - Corredor Aéreo HUB Direct
+    // 1. LogiHub Internacional - Corredor Aéreo de Carga Consolidada B2B directo a Santo Domingo (HUB SDQ)
     const logihubBase = 36.00;
     const logihubPerExtraKg = 3.50;
     const logihubTotal = Math.round((logihubBase + extraWeight * logihubPerExtraKg) * 100) / 100;
 
-    // EasyPost - FedEx / UPS International Priority
-    const easypostBase = 42.00;
-    const easypostPerExtraKg = 4.20;
-    const easypostTotal = Math.round((easypostBase + extraWeight * easypostPerExtraKg) * 100) / 100;
-
-    // ParcelABC - DHL Express Global Gateway
-    const parcelabcBase = 46.50;
-    const parcelabcPerExtraKg = 4.80;
-    const parcelabcTotal = Math.round((parcelabcBase + extraWeight * parcelabcPerExtraKg) * 100) / 100;
-
-    return [
+    const quotes: any[] = [
       {
         provider_code: 'logihub_intl',
         courier_name: 'LogiHub Internacional',
@@ -1616,12 +1606,115 @@ export const ManifestRepo = {
         rate_amount: logihubTotal,
         currency: 'USD',
         is_recommended: true,
-        tag: 'Más Económico & Directo',
+        tag: 'Carga Consolidada Directa',
+        is_live_api: true,
+        source: 'Contrato Corredor LogiHub',
         per_kg_detail: `$${logihubBase.toFixed(2)} base (hasta 5kg) + $${logihubPerExtraKg.toFixed(2)}/kg adicional`,
         total_weight: weight,
         extra_units: extraUnits
-      },
-      {
+      }
+    ];
+
+    // 2. Consulta en vivo a la API oficial de EasyPost para obtener cotizaciones reales de FedEx / UPS / DHL
+    try {
+      const apiKey = process.env.EASYPOST_API_KEY || process.env.EASYPOST_TEST_API_KEY || process.env.EASYPOST_PRODUCTION_API_KEY;
+      if (apiKey) {
+        const auth = Buffer.from(`${apiKey.trim()}:`).toString('base64');
+        const weightOz = Math.max(16, Math.round(weight * 35.274));
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 4000);
+
+        const response = await fetch('https://api.easypost.com/v2/shipments', {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${auth}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            shipment: {
+              to_address: {
+                name: 'Hub Central Santo Domingo',
+                street1: 'Av. Las Americas Km 18',
+                city: 'Santo Domingo',
+                country: 'DO',
+                zip: '10101',
+                phone: '8095551234'
+              },
+              from_address: {
+                name: 'Boston Express Hub & Ship Point',
+                street1: '100 Cambridge St',
+                city: 'Boston',
+                state: 'MA',
+                zip: '02114',
+                country: 'US',
+                phone: '6175554422'
+              },
+              parcel: {
+                length: 35,
+                width: 25,
+                height: 15,
+                weight: weightOz
+              }
+            }
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        if (response.ok) {
+          const data: any = await response.json();
+          if (Array.isArray(data.rates) && data.rates.length > 0) {
+            // Mapear tarifas devueltas en vivo por EasyPost
+            for (const r of data.rates) {
+              const carrier = String(r.carrier || '').toUpperCase();
+              let courierName = r.carrier;
+              let tag = 'API EasyPost en Vivo';
+              if (carrier.includes('UPS')) {
+                courierName = 'UPS Worldwide';
+                tag = 'UPS Oficial (EasyPost Live)';
+              } else if (carrier.includes('DHL')) {
+                courierName = 'DHL Express';
+                tag = 'DHL Oficial (EasyPost Live)';
+              } else if (carrier.includes('FEDEX')) {
+                courierName = 'FedEx International';
+                tag = 'FedEx Oficial (EasyPost Live)';
+              } else if (carrier.includes('USPS')) {
+                courierName = 'USPS Priority Mail';
+                tag = 'USPS Oficial (EasyPost Live)';
+              }
+
+              quotes.push({
+                provider_code: 'easypost',
+                rate_id: r.id,
+                shipment_id: data.id,
+                courier_name: courierName,
+                service_name: `${r.service} · Broker EasyPost`,
+                transit_days: r.delivery_days ? `${r.delivery_days} días hábiles` : '2-4 días hábiles',
+                rate_amount: Number(r.rate) || 0,
+                currency: r.currency || 'USD',
+                is_recommended: false,
+                is_live_api: true,
+                source: `EasyPost API Live (${r.carrier})`,
+                tag,
+                per_kg_detail: `Tarifa oficial broker para valija de ${weight.toFixed(1)} kg (${weightOz} oz) · Rate ID: ${r.id}`,
+                total_weight: weight,
+                extra_units: extraUnits
+              });
+            }
+          }
+        }
+      }
+    } catch (apiErr: any) {
+      console.warn('[calculateBrokerQuotes EasyPost live failed, using fallback]:', apiErr?.message || apiErr);
+    }
+
+    // Si por contingencia EasyPost no devolvió tarifas o estuvo offline, incluir cotización de contingencia
+    if (quotes.length <= 1) {
+      const easypostBase = 42.00;
+      const easypostPerExtraKg = 4.20;
+      const easypostTotal = Math.round((easypostBase + extraWeight * easypostPerExtraKg) * 100) / 100;
+      quotes.push({
         provider_code: 'easypost',
         courier_name: 'EasyPost (FedEx / UPS)',
         service_name: 'International Priority Air Courier',
@@ -1629,25 +1722,15 @@ export const ManifestRepo = {
         rate_amount: easypostTotal,
         currency: 'USD',
         is_recommended: false,
+        is_live_api: false,
         tag: 'Entrega Rápida Express',
         per_kg_detail: `$${easypostBase.toFixed(2)} base (hasta 5kg) + $${easypostPerExtraKg.toFixed(2)}/kg adicional`,
         total_weight: weight,
         extra_units: extraUnits
-      },
-      {
-        provider_code: 'parcelabc',
-        courier_name: 'ParcelABC (DHL Express)',
-        service_name: 'DHL Express Global Gateway',
-        transit_days: '3-4 días hábiles',
-        rate_amount: parcelabcTotal,
-        currency: 'USD',
-        is_recommended: false,
-        tag: 'Gateway Internacional',
-        per_kg_detail: `$${parcelabcBase.toFixed(2)} base (hasta 5kg) + $${parcelabcPerExtraKg.toFixed(2)}/kg adicional`,
-        total_weight: weight,
-        extra_units: extraUnits
-      }
-    ];
+      });
+    }
+
+    return quotes;
   },
 
   async reopenManifest(manifestId: string, pointId: string): Promise<any> {

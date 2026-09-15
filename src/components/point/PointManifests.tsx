@@ -868,11 +868,14 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
                 )}
               </div>
 
-              {quotes.map((broker) => {
-                const isSelected = selectedBroker?.provider_code === broker.provider_code;
+              {quotes.map((broker, bIdx) => {
+                const isSelected = selectedBroker && (
+                  (broker.rate_id && selectedBroker.rate_id === broker.rate_id) ||
+                  (!broker.rate_id && selectedBroker.provider_code === broker.provider_code && selectedBroker.service_name === broker.service_name)
+                );
                 return (
                   <div
-                    key={broker.provider_code}
+                    key={broker.rate_id || `${broker.provider_code}-${bIdx}`}
                     onClick={() => setSelectedBroker(broker)}
                     className={`p-4 rounded-2xl border transition-all cursor-pointer ${
                       isSelected
@@ -882,15 +885,21 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-black text-sm text-slate-900 dark:text-white">
                             {broker.courier_name}
                           </span>
+                          {broker.is_live_api && (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              API en Vivo
+                            </span>
+                          )}
                           {broker.tag && (
                             <span
                               className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
                                 broker.is_recommended
-                                  ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                                  ? 'bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-cyan-300'
                                   : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                               }`}
                             >
@@ -910,7 +919,7 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
                         <span className="text-2xl font-black text-blue-600 dark:text-cyan-400">
                           ${broker.rate_amount.toFixed(2)} <span className="text-xs font-bold text-slate-400">USD</span>
                         </span>
-                        <span className={`text-[10px] font-bold mt-0.5 ${isSelected ? 'text-blue-600' : 'text-slate-400'}`}>
+                        <span className={`text-[10px] font-bold mt-0.5 ${isSelected ? 'text-blue-600 font-black' : 'text-slate-400'}`}>
                           {isSelected ? '✓ Seleccionado' : 'Clic para seleccionar'}
                         </span>
                       </div>
