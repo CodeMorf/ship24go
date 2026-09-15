@@ -1523,6 +1523,219 @@ export const ManifestRepo = {
     }
 
     return await this.getManifestById(manifestId);
+  },
+
+  async inboundToWarehouse(
+    manifestId: string,
+    pointId: string,
+    data: {
+      warehouseLocation: string;
+      warehouseTracking?: string;
+      totalWeight?: number;
+      notes?: string;
+    }
+  ): Promise<any> {
+    const manifest = await this.getManifestById(manifestId);
+    if (!manifest) throw new Error('Manifiesto no encontrado.');
+    if (manifest.point_id !== pointId) throw new Error('No autorizado para modificar este manifiesto.');
+
+    // Generar tracking de almacén de 6 dígitos numéricos si no fue enviado
+    const warehouseTracking = data.warehouseTracking && /^\d{6}$/.test(data.warehouseTracking.trim())
+      ? data.warehouseTracking.trim()
+      : Math.floor(100000 + Math.random() * 900000).toString();
+
+    const weight = Math.max(0.5, Number(data.totalWeight) || Number(manifest.total_weight) || 5.0);
+    const location = data.warehouseLocation?.trim() || 'Almacén Boston HUB-BOS - Zona A / Estante 1';
+
+    await pool.query(
+      `UPDATE point_manifests 
+       SET status = 'closed',
+           warehouse_location = ?,
+           warehouse_tracking = ?,
+           total_weight = ?,
+           notes = COALESCE(?, notes),
+           closed_at = COALESCE(closed_at, NOW())
+       WHERE id = ?`,
+      [location, warehouseTracking, weight, data.notes?.trim() || null, manifestId]
+    );
+
+    // Actualizar envíos dentro de la saca
+    await pool.query(
+      `UPDATE shipments 
+       SET status = 'at_hub', 
+           status_label = 'En Almacén Hub (Ubicación: ' ? ')',
+           master_tracking_code = COALESCE(master_tracking_code, ?)
+       WHERE manifest_id = ?`,
+      [location, `WH-${warehouseTracking}`, manifestId]
+    );
+
+    // Registrar evento de entrada en almacén
+    const [shipmentRows]: any = await pool.query(`SELECT id, tracking_code FROM shipments WHERE manifest_id = ?`, [manifestId]);
+    for (const shp of shipmentRows) {
+      try {
+        await TrackingEventRepo.create({
+          shipment_id: shp.id,
+          tracking_code: shp.tracking_code,
+          status_code: 'at_hub',
+          status_label: 'Entrada en Almacén Hub',
+          description: `Entrada en Almacén Hub. Ubicación: ${location}. Tracking Almacén: ${warehouseTracking} (6 dígitos). Manifiesto ${manifest.manifest_number}.`,
+          location
+        });
+      } catch {}
+    }
+
+    return await this.getManifestById(manifestId);
+  },
+
+  async calculateBrokerQuotes(weightKg: number, extraUnits: number = 0): Promise<any[]> {
+    const weight = Math.max(0.5, Number(weightKg) || 5.0);
+    const baseWeight = 5.0;
+    const extraWeight = Math.max(0, weight - baseWeight);
+
+    // LogiHub Internacional - Corredor Aéreo HUB Direct
+    const logihubBase = 36.00;
+    const logihubPerExtraKg = 3.50;
+    const logihubTotal = Math.round((logihubBase + extraWeight * logihubPerExtraKg) * 100) / 100;
+
+    // EasyPost - FedEx / UPS International Priority
+    const easypostBase = 42.00;
+    const easypostPerExtraKg = 4.20;
+    const easypostTotal = Math.round((easypostBase + extraWeight * easypostPerExtraKg) * 100) / 100;
+
+    // ParcelABC - DHL Express Global Gateway
+    const parcelabcBase = 46.50;
+    const parcelabcPerExtraKg = 4.80;
+    const parcelabcTotal = Math.round((parcelabcBase + extraWeight * parcelabcPerExtraKg) * 100) / 100;
+
+    return [
+      {
+        provider_code: 'logihub_intl',
+        courier_name: 'LogiHub Internacional',
+        service_name: 'Corredor Aéreo Directo Caribe (HUB SDQ)',
+        transit_days: '2-4 días hábiles',
+        rate_amount: logihubTotal,
+        currency: 'USD',
+        is_recommended: true,
+        tag: 'Más Económico & Directo',
+        per_kg_detail: `$${logihubBase.toFixed(2)} base (hasta 5kg) + $${logihubPerExtraKg.toFixed(2)}/kg adicional`,
+        total_weight: weight,
+        extra_units: extraUnits
+      },
+      {
+        provider_code: 'easypost',
+        courier_name: 'EasyPost (FedEx / UPS)',
+        service_name: 'International Priority Air Courier',
+        transit_days: '2-3 días hábiles',
+        rate_amount: easypostTotal,
+        currency: 'USD',
+        is_recommended: false,
+        tag: 'Entrega Rápida Express',
+        per_kg_detail: `$${easypostBase.toFixed(2)} base (hasta 5kg) + $${easypostPerExtraKg.toFixed(2)}/kg adicional`,
+        total_weight: weight,
+        extra_units: extraUnits
+      },
+      {
+        provider_code: 'parcelabc',
+        courier_name: 'ParcelABC (DHL Express)',
+        service_name: 'DHL Express Global Gateway',
+        transit_days: '3-4 días hábiles',
+        rate_amount: parcelabcTotal,
+        currency: 'USD',
+        is_recommended: false,
+        tag: 'Gateway Internacional',
+        per_kg_detail: `$${parcelabcBase.toFixed(2)} base (hasta 5kg) + $${parcelabcPerExtraKg.toFixed(2)}/kg adicional`,
+        total_weight: weight,
+        extra_units: extraUnits
+      }
+    ];
+  },
+
+  async reopenManifest(manifestId: string, pointId: string): Promise<any> {
+    const manifest = await this.getManifestById(manifestId);
+    if (!manifest) throw new Error('Manifiesto no encontrado.');
+    if (manifest.point_id !== pointId) throw new Error('No autorizado para modificar este manifiesto.');
+    if (manifest.status === 'in_transit_hub' || manifest.status === 'dispatched_intl') {
+      throw new Error('No se puede reabrir un manifiesto que ya fue despachado en vuelo.');
+    }
+
+    await pool.query(
+      `UPDATE point_manifests 
+       SET status = 'open',
+           closed_at = NULL,
+           master_tracking_code = NULL
+       WHERE id = ?`,
+      [manifestId]
+    );
+
+    await pool.query(
+      `UPDATE shipments 
+       SET status = 'point_received', 
+           status_label = 'En Custodia del Point',
+           master_tracking_code = NULL
+       WHERE manifest_id = ?`,
+      [manifestId]
+    );
+
+    return await this.getManifestById(manifestId);
+  },
+
+  async assignBrokerAndDispatch(
+    manifestId: string,
+    pointId: string,
+    data: {
+      providerCode: string;
+      courierName: string;
+      serviceName: string;
+      quoteAmount: number;
+      totalWeight?: number;
+    }
+  ): Promise<any> {
+    const manifest = await this.getManifestById(manifestId);
+    if (!manifest) throw new Error('Manifiesto no encontrado.');
+    if (manifest.point_id !== pointId) throw new Error('No autorizado.');
+
+    const masterTracking = `MST-${manifest.category === 'documents' ? 'DOC' : 'PAR'}-${Date.now().toString().slice(-8)}`;
+    const weight = Math.max(0.5, Number(data.totalWeight) || Number(manifest.total_weight) || 5.0);
+
+    await pool.query(
+      `UPDATE point_manifests 
+       SET status = 'in_transit_hub',
+           master_tracking_code = ?,
+           provider_code = ?,
+           courier_name = ?,
+           broker_quote_service = ?,
+           broker_quote_amount = ?,
+           total_weight = ?,
+           dispatched_at = NOW()
+       WHERE id = ?`,
+      [masterTracking, data.providerCode, data.courierName, data.serviceName, data.quoteAmount, weight, manifestId]
+    );
+
+    await pool.query(
+      `UPDATE shipments 
+       SET status = 'in_transit', 
+           status_label = 'En Tránsito Internacional hacia Hub SDQ',
+           master_tracking_code = ? 
+       WHERE manifest_id = ?`,
+      [masterTracking, manifestId]
+    );
+
+    // Eventos de trazabilidad para todos los envíos
+    const [shipmentRows]: any = await pool.query(`SELECT id, tracking_code FROM shipments WHERE manifest_id = ?`, [manifestId]);
+    for (const shp of shipmentRows) {
+      try {
+        await TrackingEventRepo.create({
+          shipment_id: shp.id,
+          tracking_code: shp.tracking_code,
+          status_code: 'in_transit',
+          status_label: 'Despachado Internacional',
+          description: `Despachado con ${data.courierName} (${data.serviceName}). Master Tracking: ${masterTracking}. Peso consolidado: ${weight.toFixed(2)} kg. En ruta a HUB Santo Domingo (SDQ).`,
+          location: manifest.origin_hub_city || 'Boston Hub'
+        });
+      } catch {}
+    }
+
+    return await this.getManifestById(manifestId);
   }
 };
 

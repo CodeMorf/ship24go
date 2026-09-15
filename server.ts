@@ -6314,6 +6314,86 @@ app.post('/api/point/manifests/close-saca', authMiddleware, async (req: any, res
   }
 });
 
+// 4.1 Entrada en Almacén Hub con Tracking de 6 Dígitos y Ubicación
+app.post('/api/point/manifests/warehouse-inbound', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const { manifestId, warehouseLocation, warehouseTracking, totalWeight, notes } = req.body || {};
+    if (!manifestId) return res.status(400).json({ error: 'ID de manifiesto requerido.' });
+
+    const manifest = await ManifestRepo.inboundToWarehouse(manifestId, point.id, {
+      warehouseLocation: warehouseLocation || 'Almacén Boston HUB-BOS - Zona A / Estante 1',
+      warehouseTracking,
+      totalWeight: Number(totalWeight) || 5.0,
+      notes
+    });
+
+    res.json({ success: true, manifest });
+  } catch (error: any) {
+    console.error('[Warehouse Inbound Error]:', error);
+    res.status(400).json({ error: error?.message || 'No se pudo registrar la entrada a almacén.' });
+  }
+});
+
+// 4.2 Cotizar Brokers de Envío para la Saca / Lote
+app.post('/api/point/manifests/quote-brokers', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const { weightKg, extraUnits } = req.body || {};
+    const quotes = await ManifestRepo.calculateBrokerQuotes(Number(weightKg) || 5.0, Number(extraUnits) || 0);
+
+    res.json({ success: true, quotes });
+  } catch (error: any) {
+    console.error('[Quote Brokers Error]:', error);
+    res.status(400).json({ error: error?.message || 'No se pudieron calcular las cotizaciones.' });
+  }
+});
+
+// 4.3 Reabrir Saco para Modificar o Agregar más Documentos
+app.post('/api/point/manifests/reopen', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const { manifestId } = req.body || {};
+    if (!manifestId) return res.status(400).json({ error: 'ID de manifiesto requerido.' });
+
+    const manifest = await ManifestRepo.reopenManifest(manifestId, point.id);
+    res.json({ success: true, manifest });
+  } catch (error: any) {
+    console.error('[Reopen Manifest Error]:', error);
+    res.status(400).json({ error: error?.message || 'No se pudo reabrir el saco.' });
+  }
+});
+
+// 4.4 Confirmar Broker y Despachar Saca
+app.post('/api/point/manifests/confirm-dispatch', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const { manifestId, providerCode, courierName, serviceName, quoteAmount, totalWeight } = req.body || {};
+    if (!manifestId || !providerCode) return res.status(400).json({ error: 'Datos de despacho incompletos.' });
+
+    const manifest = await ManifestRepo.assignBrokerAndDispatch(manifestId, point.id, {
+      providerCode,
+      courierName: courierName || 'Courier Broker',
+      serviceName: serviceName || 'Express Courier',
+      quoteAmount: Number(quoteAmount) || 0,
+      totalWeight: Number(totalWeight) || 5.0
+    });
+
+    res.json({ success: true, manifest });
+  } catch (error: any) {
+    console.error('[Confirm Dispatch Error]:', error);
+    res.status(400).json({ error: error?.message || 'No se pudo confirmar el despacho del manifiesto.' });
+  }
+});
+
 // 5. Listar Manifiestos y Sacas del Point
 app.get('/api/point/manifests', authMiddleware, async (req: any, res) => {
   try {

@@ -42,6 +42,14 @@ export const api = {
   getCurrentSaca: (category = 'documents') => fetchAPI(`/point/manifests/current-saca?category=${encodeURIComponent(category)}`),
   createPointTerminalShipment: (data: any) => fetchAPI('/point/terminal/create-shipment', { method: 'POST', body: JSON.stringify(data) }),
   closePointSaca: (data: { manifestId: string; notes?: string }) => fetchAPI('/point/manifests/close-saca', { method: 'POST', body: JSON.stringify(data) }),
+  warehouseInboundSaca: (data: { manifestId: string; warehouseLocation: string; warehouseTracking?: string; totalWeight?: number; notes?: string }) =>
+    fetchAPI('/point/manifests/warehouse-inbound', { method: 'POST', body: JSON.stringify(data) }),
+  quoteManifestBrokers: (data: { weightKg: number; extraUnits?: number }) =>
+    fetchAPI('/point/manifests/quote-brokers', { method: 'POST', body: JSON.stringify(data) }),
+  reopenPointManifest: (data: { manifestId: string }) =>
+    fetchAPI('/point/manifests/reopen', { method: 'POST', body: JSON.stringify(data) }),
+  confirmManifestDispatch: (data: { manifestId: string; providerCode: string; courierName: string; serviceName: string; quoteAmount: number; totalWeight?: number }) =>
+    fetchAPI('/point/manifests/confirm-dispatch', { method: 'POST', body: JSON.stringify(data) }),
   getPointManifests: () => fetchAPI('/point/manifests'),
   getPointManifestDetail: (id: string) => fetchAPI(`/point/manifests/${encodeURIComponent(id)}`),
   getPointFinanceSummary: () => fetchAPI('/point/finance/summary'),

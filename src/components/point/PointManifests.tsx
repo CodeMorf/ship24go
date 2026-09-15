@@ -12,7 +12,20 @@ import {
   AlertTriangle,
   RefreshCw,
   Eye,
-  Lock
+  Lock,
+  Warehouse,
+  Barcode,
+  Scale,
+  Unlock,
+  Layers,
+  Plane,
+  Plus,
+  Minus,
+  X,
+  ChevronRight,
+  Sparkles,
+  MapPin,
+  Check
 } from 'lucide-react';
 import { api } from '../../lib/api';
 
@@ -26,9 +39,32 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
   const [sacaShipments, setSacaShipments] = useState<any[]>([]);
   const [manifestsHistory, setManifestsHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [closing, setClosing] = useState(false);
-  const [notes, setNotes] = useState('');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Modal 1: Entrada a Almacén Hub
+  const [showInboundModal, setShowInboundModal] = useState(false);
+  const [warehouseLocation, setWarehouseLocation] = useState('HUB-BOS · Estante A1 (Valijas RD)');
+  const [warehouseTracking, setWarehouseTracking] = useState('');
+  const [inboundWeight, setInboundWeight] = useState<number>(5.0);
+  const [inboundNotes, setInboundNotes] = useState('');
+  const [savingInbound, setSavingInbound] = useState(false);
+
+  // Modal 2: Cotizador de Brokers para la Saca
+  const [showQuoteModal, setShowQuoteModal] = useState(false);
+  const [quoteWeight, setQuoteWeight] = useState<number>(5.0);
+  const [extraUnits, setExtraUnits] = useState<number>(0);
+  const [quotes, setQuotes] = useState<any[]>([]);
+  const [selectedBroker, setSelectedBroker] = useState<any | null>(null);
+  const [loadingQuotes, setLoadingQuotes] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
+
+  // Reabrir Saco
+  const [reopening, setReopening] = useState(false);
+
+  // Generador de código de tracking de 6 dígitos numéricos
+  const generate6DigitCode = () => {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -41,6 +77,11 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
       setCurrentSaca(sacaRes.manifest);
       setSacaShipments(sacaRes.shipments || []);
       setManifestsHistory(histRes.manifests || []);
+
+      if (sacaRes.manifest?.total_weight) {
+        setInboundWeight(Number(sacaRes.manifest.total_weight) || 5.0);
+        setQuoteWeight(Number(sacaRes.manifest.total_weight) || 5.0);
+      }
     } catch (err: any) {
       console.error('Error cargando manifiestos:', err);
       setMessage({ type: 'error', text: err.message || 'No se pudieron cargar las sacas.' });
@@ -53,38 +94,149 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
     loadData();
   }, []);
 
-  const handleCloseSaca = async () => {
+  // Abrir modal de Entrada a Almacén
+  const handleOpenInboundModal = () => {
     if (!currentSaca) return;
-    const threshold = currentSaca.min_items_threshold || 10;
-    const currentCount = sacaShipments.length;
+    setWarehouseTracking(generate6DigitCode());
+    setShowInboundModal(true);
+  };
 
-    if (currentCount < threshold) {
-      const ok = window.confirm(
-        `Atención: La saca tiene ${currentCount} de los ${threshold} documentos requeridos para consolidación óptima.\n\n¿Estás seguro de que deseas cerrarla y enviarla al Hub ahora mismo?`
-      );
-      if (!ok) return;
-    }
-
-    setClosing(true);
+  // Confirmar Entrada a Almacén
+  const handleConfirmInbound = async () => {
+    if (!currentSaca) return;
+    setSavingInbound(true);
     setMessage(null);
     try {
-      const res = await api.closePointSaca({
+      const res = await api.warehouseInboundSaca({
         manifestId: currentSaca.id,
-        notes: notes.trim() || undefined
+        warehouseLocation: warehouseLocation.trim() || 'HUB-BOS · Estante A1 (Valijas RD)',
+        warehouseTracking: warehouseTracking.trim() || generate6DigitCode(),
+        totalWeight: inboundWeight,
+        notes: inboundNotes.trim() || undefined
       });
+
       if (res.success) {
+        setShowInboundModal(false);
         setMessage({
           type: 'success',
-          text: `¡Saca cerrada exitosamente! Se generó el Master Tracking ${res.manifest.master_tracking_code} para el Manifiesto ${res.manifest.manifest_number}.`
+          text: `¡Entrada a Almacén exitosa! Saca ubicada en [${warehouseLocation}] con Tracking de Almacén #${res.manifest?.warehouse_tracking || warehouseTracking}. Pasando a cotización de brokers.`
         });
-        setNotes('');
+        await loadData();
+        if (onRefreshNeeded) onRefreshNeeded();
+
+        // Abrir inmediatamente el cotizador de brokers
+        setQuoteWeight(inboundWeight);
+        setShowQuoteModal(true);
+        fetchQuotes(inboundWeight, 0);
+      }
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'No se pudo registrar la entrada en almacén.' });
+    } finally {
+      setSavingInbound(false);
+    }
+  };
+
+  // Consultar Cotizaciones de Brokers
+  const fetchQuotes = async (weight: number, units: number) => {
+    setLoadingQuotes(true);
+    try {
+      const res = await api.quoteManifestBrokers({
+        weightKg: weight,
+        extraUnits: units
+      });
+      if (res.success && Array.isArray(res.quotes)) {
+        setQuotes(res.quotes);
+        const recommended = res.quotes.find((q: any) => q.is_recommended) || res.quotes[0];
+        setSelectedBroker(recommended);
+      }
+    } catch (err: any) {
+      console.error('Error calculando cotizaciones:', err);
+    } finally {
+      setLoadingQuotes(false);
+    }
+  };
+
+  // Abrir Cotizador Directo
+  const handleOpenQuoter = () => {
+    const w = Number(currentSaca?.total_weight) || 5.0;
+    setQuoteWeight(w);
+    setExtraUnits(0);
+    setShowQuoteModal(true);
+    fetchQuotes(w, 0);
+  };
+
+  // Recalcular cotización al modificar peso o unidades
+  const handleWeightChange = (newWeight: number) => {
+    const validWeight = Math.max(0.5, Math.round(newWeight * 10) / 10);
+    setQuoteWeight(validWeight);
+    fetchQuotes(validWeight, extraUnits);
+  };
+
+  const handleUnitsChange = (newUnits: number) => {
+    const validUnits = Math.max(0, newUnits);
+    setExtraUnits(validUnits);
+    // Cada unidad extra agrega aprox 0.5 kg
+    const calculatedWeight = Math.max(0.5, Math.round((5.0 + validUnits * 0.5) * 10) / 10);
+    setQuoteWeight(calculatedWeight);
+    fetchQuotes(calculatedWeight, validUnits);
+  };
+
+  // Confirmar Broker y Despachar Saca
+  const handleConfirmDispatch = async () => {
+    if (!currentSaca || !selectedBroker) return;
+    setDispatching(true);
+    setMessage(null);
+    try {
+      const res = await api.confirmManifestDispatch({
+        manifestId: currentSaca.id,
+        providerCode: selectedBroker.provider_code,
+        courierName: selectedBroker.courier_name,
+        serviceName: selectedBroker.service_name,
+        quoteAmount: selectedBroker.rate_amount,
+        totalWeight: quoteWeight
+      });
+
+      if (res.success) {
+        setShowQuoteModal(false);
+        setMessage({
+          type: 'success',
+          text: `¡Lote despachado exitosamente con ${selectedBroker.courier_name}! Se generó el Master Tracking Oficial ${res.manifest?.master_tracking_code}.`
+        });
         await loadData();
         if (onRefreshNeeded) onRefreshNeeded();
       }
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'No se pudo cerrar la saca.' });
+      setMessage({ type: 'error', text: err.message || 'Error al confirmar despacho del lote.' });
     } finally {
-      setClosing(false);
+      setDispatching(false);
+    }
+  };
+
+  // Reabrir Saco para agregar más unidades o peso
+  const handleReopenSaca = async () => {
+    if (!currentSaca) return;
+    const ok = window.confirm(
+      '¿Deseas reabrir este saco? Volverá al estado "Abierto en Custodia" para que puedas seguir agregando más sobres físicos desde el mostrador antes de cotizar y despachar.'
+    );
+    if (!ok) return;
+
+    setReopening(true);
+    setMessage(null);
+    try {
+      const res = await api.reopenPointManifest({ manifestId: currentSaca.id });
+      if (res.success) {
+        setShowQuoteModal(false);
+        setMessage({
+          type: 'success',
+          text: `El saco ${res.manifest?.manifest_number} ha sido reabierto exitosamente. Ahora puedes ingresar más documentos desde el mostrador.`
+        });
+        await loadData();
+        if (onRefreshNeeded) onRefreshNeeded();
+      }
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.message || 'No se pudo reabrir el saco.' });
+    } finally {
+      setReopening(false);
     }
   };
 
@@ -92,6 +244,8 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
   const currentCount = sacaShipments.length;
   const progressPercent = Math.min(100, Math.round((currentCount / threshold) * 100));
   const isReady = currentCount >= threshold;
+  const isClosed = currentSaca?.status === 'closed';
+  const isInTransit = currentSaca?.status === 'in_transit_hub';
 
   return (
     <div className="space-y-7">
@@ -105,11 +259,10 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
               Regla de Consolidación Internacional · Destino República Dominicana
             </div>
             <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
-              Control de Sacas y Manifiestos
+              Control de Sacas, Almacén y Cotización de Brokers
             </h2>
             <p className="text-blue-100 text-sm mt-2 leading-relaxed">
-              Los sobres y documentos con destino a República Dominicana se reciben físicamente en este Point y se agrupan en una <strong>Saca Consolidada</strong>.
-              Al alcanzar el mínimo de <strong>10 documentos</strong>, se cierra la saca y se genera el <strong>Master Tracking</strong> hacia el Hub Central de Santo Domingo (HUB-SDQ).
+              Los sobres y documentos a República Dominicana se agrupan hasta <strong>10 documentos</strong>. Al cerrar el lote, se da entrada en almacén con <strong>ubicación física y tracking de 6 dígitos</strong>, y se cotizan en vivo los <strong>brokers de envío</strong> con opción de reabrir o ajustar peso.
             </p>
           </div>
 
@@ -136,14 +289,22 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
         </div>
       )}
 
-      {/* SACA ABIERTA ACTUAL */}
+      {/* SACA ACTUAL: ABIERTA O EN ALMACÉN */}
       <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2rem] p-6 sm:p-8 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100 dark:border-slate-800">
           <div>
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
-                Saca Abierta en Custodia
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  isClosed ? 'bg-amber-500' : isInTransit ? 'bg-blue-500' : 'bg-emerald-500 animate-pulse'
+                }`}
+              />
+              <span className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                {isClosed
+                  ? 'Saca en Almacén Hub (Cerrada para Despacho)'
+                  : isInTransit
+                  ? 'Saca Despachada en Vuelo Internacional'
+                  : 'Saca Abierta en Custodia'}
               </span>
             </div>
             <h3 className="text-xl font-black text-slate-900 dark:text-white mt-1">
@@ -154,11 +315,28 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
             </p>
           </div>
 
-          <div className="text-right bg-slate-50 dark:bg-slate-800/80 rounded-2xl p-3 px-5 border border-slate-200 dark:border-slate-700">
-            <span className="text-xs font-bold text-slate-400 uppercase">Documentos Acumulados</span>
-            <div className="flex items-baseline justify-end gap-1 mt-0.5">
-              <span className="text-3xl font-black text-blue-600 dark:text-cyan-400">{currentCount}</span>
-              <span className="text-sm font-bold text-slate-400">/ {threshold}</span>
+          <div className="flex items-center gap-3">
+            {/* Si ya tiene tracking de almacén de 6 dígitos */}
+            {currentSaca?.warehouse_tracking && (
+              <div className="text-right bg-blue-50 dark:bg-blue-950/50 rounded-2xl p-3 px-4 border border-blue-200 dark:border-blue-800">
+                <span className="text-[10px] font-black text-blue-600 dark:text-cyan-400 uppercase tracking-wider flex items-center gap-1 justify-end">
+                  <Barcode className="w-3 h-3" /> Tracking Almacén
+                </span>
+                <span className="text-xl font-black font-mono text-blue-800 dark:text-cyan-300">
+                  #{currentSaca.warehouse_tracking}
+                </span>
+                <p className="text-[10px] text-slate-500 truncate max-w-[140px]">
+                  {currentSaca.warehouse_location || 'Estante A1'}
+                </p>
+              </div>
+            )}
+
+            <div className="text-right bg-slate-50 dark:bg-slate-800/80 rounded-2xl p-3 px-5 border border-slate-200 dark:border-slate-700">
+              <span className="text-xs font-bold text-slate-400 uppercase">Documentos</span>
+              <div className="flex items-baseline justify-end gap-1 mt-0.5">
+                <span className="text-3xl font-black text-blue-600 dark:text-cyan-400">{currentCount}</span>
+                <span className="text-sm font-bold text-slate-400">/ {threshold}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -169,7 +347,7 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
             <span className="text-slate-600 dark:text-slate-300">Progreso de llenado de la saca:</span>
             <span className={isReady ? 'text-emerald-600 dark:text-emerald-400 font-black' : 'text-blue-600 dark:text-cyan-400 font-black'}>
               {isReady
-                ? '¡Objetivo alcanzado! (Listo para consolidar)'
+                ? '¡Objetivo alcanzado! (Listo para entrada a almacén y cotización)'
                 : `Faltan ${Math.max(0, threshold - currentCount)} documentos para consolidar`}
             </span>
           </div>
@@ -192,42 +370,71 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
           </div>
         </div>
 
-        {/* ACCIÓN DE CIERRE DE SACA */}
-        <div className="bg-slate-50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="w-full sm:w-2/3">
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Notas del Manifiesto / Observaciones de Salida (Opcional):
-            </label>
-            <input
-              type="text"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ej. Saca precintada con marchamo de seguridad #7821. Salida en valija courier."
-              className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
-            />
+        {/* BARRA DE ACCIÓN: ENTRADA EN ALMACÉN, COTIZAR BROKERS O REABRIR SACO */}
+        <div className="bg-slate-50 dark:bg-slate-800/40 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="w-full md:w-auto">
+            {isClosed ? (
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center shrink-0">
+                  <Warehouse className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                    Saca en Almacén · #{currentSaca?.warehouse_tracking || '6 Dígitos'}
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Ubicación: <strong>{currentSaca?.warehouse_location || 'Estante A1'}</strong> · Peso: <strong>{Number(currentSaca?.total_weight || 5).toFixed(2)} kg</strong>
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Estado operativo de la saca:
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Al completar los 10 documentos, da entrada en almacén, genera el tracking interno de 6 dígitos y cotiza en vivo los brokers de envío.
+                </p>
+              </div>
+            )}
           </div>
 
-          <button
-            onClick={handleCloseSaca}
-            disabled={closing || currentCount === 0}
-            className={`w-full sm:w-auto px-6 py-3.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md ${
-              isReady
-                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20 hover:scale-[1.02]'
-                : 'bg-blue-600 hover:bg-blue-700 text-white'
-            } disabled:opacity-40 disabled:hover:scale-100`}
-          >
-            {closing ? (
+          <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+            {/* Si ya está en almacén / cerrada, permite reabrir o cotizar */}
+            {isClosed ? (
               <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Cerrando y generando manifiesto...
+                <button
+                  onClick={handleReopenSaca}
+                  disabled={reopening}
+                  className="px-4 py-3 rounded-xl font-bold text-xs flex items-center gap-2 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer"
+                >
+                  <Unlock className="w-4 h-4 text-amber-500" />
+                  {reopening ? 'Reabriendo...' : 'Abrir Saco (Modificar)'}
+                </button>
+
+                <button
+                  onClick={handleOpenQuoter}
+                  className="px-6 py-3 rounded-xl font-black text-xs flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:scale-[1.02] transition-all cursor-pointer"
+                >
+                  <Plane className="w-4 h-4" />
+                  Cotizar Brokers de Envío
+                </button>
               </>
             ) : (
-              <>
-                <Lock className="w-4 h-4" />
-                Cerrar Saca y Generar Manifiesto
-              </>
+              <button
+                onClick={handleOpenInboundModal}
+                disabled={currentCount === 0}
+                className={`w-full sm:w-auto px-6 py-3.5 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-md ${
+                  isReady
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20 hover:scale-[1.02]'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                } disabled:opacity-40 disabled:hover:scale-100`}
+              >
+                <Warehouse className="w-4 h-4" />
+                Cerrar Saca & Entrada en Almacén
+              </button>
             )}
-          </button>
+          </div>
         </div>
 
         {/* LISTADO DE DOCUMENTOS DENTRO DE LA SACA ACTUAL */}
@@ -286,13 +493,13 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
         </div>
       </section>
 
-      {/* HISTORIAL DE SACAS Y MANIFIESTOS CERRADOS */}
+      {/* HISTORIAL DE SACAS Y MANIFIESTOS */}
       <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2rem] p-6 sm:p-8 shadow-xs">
         <h3 className="text-xl font-black text-slate-900 dark:text-white mb-1">
           Historial de Manifiestos y Sacas Enviadas
         </h3>
         <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
-          Sacas cerradas con su respectivo Master Tracking y estatus de transferencia a Hubs.
+          Sacas consolidadas, entradas a almacén y cotizaciones de brokers hacia Hub SDQ.
         </p>
 
         {manifestsHistory.filter((m) => m.status !== 'open').length === 0 ? (
@@ -316,6 +523,11 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
                       <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300">
                         {m.status}
                       </span>
+                      {m.warehouse_tracking && (
+                        <span className="text-[10px] font-mono font-black uppercase px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">
+                          Almacén #{m.warehouse_tracking}
+                        </span>
+                      )}
                     </div>
 
                     <div className="mt-2 grid sm:grid-cols-2 gap-x-6 gap-y-1 text-xs text-slate-600 dark:text-slate-400">
@@ -323,13 +535,13 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
                         <strong>Destino:</strong> {m.destination_hub_name || 'Hub Santo Domingo SDQ'}
                       </p>
                       <p>
-                        <strong>Total Documentos:</strong> {m.current_items_count || m.total_items} piezas
+                        <strong>Documentos:</strong> {m.current_items_count || m.total_items} piezas ({Number(m.total_weight || 5).toFixed(1)} kg)
                       </p>
                       <p>
-                        <strong>Fecha Cierre:</strong> {m.closed_at ? new Date(m.closed_at).toLocaleString() : 'Reciente'}
+                        <strong>Ubicación Almacén:</strong> {m.warehouse_location || 'Estante A1'}
                       </p>
                       <p>
-                        <strong>Courier / Valija:</strong> {m.courier_name || 'Ship24Go Air Hub Express'}
+                        <strong>Courier / Broker:</strong> {m.courier_name || 'LogiHub Internacional'}
                       </p>
                     </div>
                   </div>
@@ -337,14 +549,421 @@ export const PointManifests: React.FC<PointManifestsProps> = ({ point, onRefresh
                   <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 px-4 text-right">
                     <span className="text-[10px] font-bold uppercase text-slate-400 block">Master Tracking Global</span>
                     <span className="font-mono font-black text-blue-700 dark:text-cyan-300 text-sm">
-                      {m.master_tracking_code || 'En proceso'}
+                      {m.master_tracking_code || (m.warehouse_tracking ? `WH-${m.warehouse_tracking}` : 'En proceso')}
                     </span>
+                    {m.broker_quote_amount && (
+                      <span className="text-[10px] font-bold text-emerald-600 block mt-0.5">
+                        Cotizado: ${Number(m.broker_quote_amount).toFixed(2)} USD
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
           </div>
         )}
       </section>
+
+      {/* ========================================================================= */}
+      {/* MODAL 1: ENTRADA EN ALMACÉN & CÓDIGO DE 6 DÍGITOS */}
+      {/* ========================================================================= */}
+      {showInboundModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl relative">
+            <button
+              onClick={() => setShowInboundModal(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 flex items-center justify-center shrink-0">
+                <Warehouse className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-slate-900 dark:text-white">
+                  Entrada a Almacén Hub
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Consolidación de Saca <strong>{currentSaca?.manifest_number}</strong> ({currentCount} documentos)
+                </p>
+              </div>
+            </div>
+
+            {/* TRACKING DE 6 DÍGITOS GENERADO AUTOMÁTICAMENTE */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-slate-800/60 dark:to-slate-800/30 border border-blue-200 dark:border-blue-900/50 rounded-2xl p-4 mb-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-black uppercase text-blue-600 dark:text-cyan-400 tracking-wider flex items-center gap-1">
+                    <Barcode className="w-3.5 h-3.5" /> Código de Entrada Almacén (6 Dígitos)
+                  </span>
+                  <div className="text-3xl font-black font-mono tracking-widest text-slate-900 dark:text-white mt-1">
+                    {warehouseTracking}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWarehouseTracking(generate6DigitCode())}
+                  className="bg-white dark:bg-slate-700 hover:bg-slate-50 text-slate-700 dark:text-slate-200 text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Regenerar
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2">
+                Código único de 6 dígitos generado para control interno, rotulado físico de la saca e inventario en el almacén Hub.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {/* UBICACIÓN EN EL ALMACÉN */}
+              <div>
+                <label className="block text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  <MapPin className="w-3.5 h-3.5 inline mr-1 text-blue-600" />
+                  Ubicación Física en Almacén Hub:
+                </label>
+                <input
+                  type="text"
+                  value={warehouseLocation}
+                  onChange={(e) => setWarehouseLocation(e.target.value)}
+                  placeholder="Ej. HUB-BOS · Estante A1 (Valijas RD)"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+
+                {/* Sugerencias Rápidas de Ubicación */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {[
+                    'HUB-BOS · Estante A1 (Valijas RD)',
+                    'HUB-BOS · Zona B (Consolidados SDQ)',
+                    'HUB-BOS · Rack 3 (Express Caribe)',
+                    'HUB-BOS · Muelle Central Despacho'
+                  ].map((loc) => (
+                    <button
+                      key={loc}
+                      type="button"
+                      onClick={() => setWarehouseLocation(loc)}
+                      className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition-colors cursor-pointer ${
+                        warehouseLocation === loc
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {loc.split('·')[1]?.trim() || loc}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* PESO DE LA SACA */}
+              <div>
+                <label className="block text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  <Scale className="w-3.5 h-3.5 inline mr-1 text-blue-600" />
+                  Peso Total Pesado en Báscula (kg):
+                </label>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setInboundWeight((prev) => Math.max(0.5, Math.round((prev - 0.5) * 10) / 10))}
+                    className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-white flex items-center justify-center font-bold text-base cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.5"
+                      value={inboundWeight}
+                      onChange={(e) => setInboundWeight(Math.max(0.5, parseFloat(e.target.value) || 0.5))}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-center text-sm font-black focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    />
+                    <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">kg</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInboundWeight((prev) => Math.round((prev + 0.5) * 10) / 10)}
+                    className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-white flex items-center justify-center font-bold text-base cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* OBSERVACIONES / MARCHAMO */}
+              <div>
+                <label className="block text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5">
+                  Observaciones / Precinto de Seguridad:
+                </label>
+                <input
+                  type="text"
+                  value={inboundNotes}
+                  onChange={(e) => setInboundNotes(e.target.value)}
+                  placeholder="Ej. Saca precintada con marchamo #7821. Lista para cotizar broker."
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* BOTONES DE ACCIÓN */}
+            <div className="mt-7 flex items-center justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowInboundModal(false)}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmInbound}
+                disabled={savingInbound}
+                className="px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center gap-2 shadow-lg shadow-emerald-600/20 hover:scale-[1.02] transition-all cursor-pointer disabled:opacity-40"
+              >
+                {savingInbound ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Guardando en Almacén...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    Dar Entrada en Almacén y Cotizar Brokers
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 2: COTIZADOR DE BROKERS DE ENVÍO & AJUSTE DE PESO / UNIDADES */}
+      {/* ========================================================================= */}
+      {showQuoteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl relative my-8">
+            <button
+              onClick={() => setShowQuoteModal(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Plane className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white">
+                    Cotizador de Brokers para Saca Consolidada
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Ruta: Boston (HUB-BOS) &rarr; Santo Domingo (HUB-SDQ) · Saca <strong>{currentSaca?.manifest_number}</strong>
+                </p>
+              </div>
+
+              {currentSaca?.warehouse_tracking && (
+                <div className="text-right">
+                  <span className="text-[10px] font-mono font-black text-blue-600 dark:text-cyan-400 block">
+                    Almacén #{currentSaca.warehouse_tracking}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    {currentSaca.warehouse_location || 'Estante A1'}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* PANEL DE CONTROL DE PESO Y UNIDADES (RECALCULA EN VIVO) */}
+            <div className="my-5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-5 border border-slate-200 dark:border-slate-700">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-black uppercase text-slate-700 dark:text-slate-200 tracking-wider flex items-center gap-1.5">
+                  <Scale className="w-4 h-4 text-blue-600" />
+                  Ajustar Peso y Unidades de la Saca
+                </span>
+                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5" /> Cotización en tiempo real
+                </span>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                {/* Control de Peso Total */}
+                <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5">
+                    Peso Total Consolidado (kg):
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleWeightChange(quoteWeight - 0.5)}
+                      className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-white flex items-center justify-center font-bold text-sm cursor-pointer hover:bg-slate-200"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0.5"
+                      value={quoteWeight}
+                      onChange={(e) => handleWeightChange(parseFloat(e.target.value) || 0.5)}
+                      className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-1 px-2 text-center font-black text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleWeightChange(quoteWeight + 0.5)}
+                      className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-white flex items-center justify-center font-bold text-sm cursor-pointer hover:bg-slate-200"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1.5 font-medium">
+                    <span>Mín: 0.5 kg</span>
+                    <span>Actual: {quoteWeight.toFixed(1)} kg</span>
+                  </div>
+                </div>
+
+                {/* Control de Unidades Extras */}
+                <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1.5">
+                    Piezas / Unidades Totales:
+                  </label>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xl font-black text-blue-600 dark:text-cyan-400">
+                      {currentCount + extraUnits} <span className="text-xs font-normal text-slate-400">docs</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {[0, 2, 5].map((u) => (
+                        <button
+                          key={u}
+                          type="button"
+                          onClick={() => handleUnitsChange(u)}
+                          className={`text-[10px] font-bold px-2 py-1 rounded-md border cursor-pointer ${
+                            extraUnits === u
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600'
+                          }`}
+                        >
+                          +{u}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1.5">
+                    {extraUnits > 0 ? `+${extraUnits} unidades agregadas a la cotización` : '10 unidades base en saca'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* LISTA DE BROKERS COTIZADOS */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase text-slate-700 dark:text-slate-300 tracking-wider">
+                  Brokers Disponibles para Despacho:
+                </span>
+                {loadingQuotes && (
+                  <span className="text-xs text-blue-600 font-bold flex items-center gap-1">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Recalculando tarifas...
+                  </span>
+                )}
+              </div>
+
+              {quotes.map((broker) => {
+                const isSelected = selectedBroker?.provider_code === broker.provider_code;
+                return (
+                  <div
+                    key={broker.provider_code}
+                    onClick={() => setSelectedBroker(broker)}
+                    className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-950/40 shadow-md ring-2 ring-blue-500/20'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-white dark:bg-slate-800/40'
+                    }`}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-black text-sm text-slate-900 dark:text-white">
+                            {broker.courier_name}
+                          </span>
+                          {broker.tag && (
+                            <span
+                              className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                broker.is_recommended
+                                  ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                                  : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                              }`}
+                            >
+                              {broker.tag}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                          {broker.service_name} · <strong>{broker.transit_days}</strong>
+                        </p>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          {broker.per_kg_detail}
+                        </p>
+                      </div>
+
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center">
+                        <span className="text-2xl font-black text-blue-600 dark:text-cyan-400">
+                          ${broker.rate_amount.toFixed(2)} <span className="text-xs font-bold text-slate-400">USD</span>
+                        </span>
+                        <span className={`text-[10px] font-bold mt-0.5 ${isSelected ? 'text-blue-600' : 'text-slate-400'}`}>
+                          {isSelected ? '✓ Seleccionado' : 'Clic para seleccionar'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* PIE DEL MODAL CON ACCIONES: DESPACHAR O REABRIR SACO */}
+            <div className="mt-7 pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleReopenSaca}
+                disabled={reopening || dispatching}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Unlock className="w-3.5 h-3.5 text-amber-500" />
+                {reopening ? 'Reabriendo...' : 'Abrir Saco (Modificar Piezas)'}
+              </button>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowQuoteModal(false)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white cursor-pointer"
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDispatch}
+                  disabled={dispatching || !selectedBroker}
+                  className="w-full sm:w-auto px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 hover:scale-[1.02] transition-all cursor-pointer disabled:opacity-40"
+                >
+                  {dispatching ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      Generando Guía Master...
+                    </>
+                  ) : (
+                    <>
+                      <Plane className="w-4 h-4" />
+                      Generar Guía Master y Despachar con {selectedBroker?.courier_name || 'Broker'}
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
