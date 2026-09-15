@@ -34,6 +34,7 @@ import {
 import { LanguageSelector } from '../components/LanguageSelector';
 import { CurrencySelector } from '../components/CurrencySelector';
 import { useI18n, Language } from '../lib/i18n';
+import { useTheme } from '../lib/theme';
 import { ZipCodeAutocomplete } from '../components/ZipCodeAutocomplete';
 import { CountrySelect } from '../components/CountrySelect';
 import { api, getAuthToken } from '../lib/api';
@@ -885,32 +886,15 @@ export const Landing = () => {
     if (description) description.setAttribute('content', lt.seoDescription);
   }, [langKey]);
 
-  // Tema
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    return localStorage.getItem('theme') === 'dark';
-  });
+  // Tema global sincronizado
+  const { isDark: isDarkMode, toggleTheme } = useTheme();
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (isDarkMode) {
-      root.classList.add('dark');
-      root.setAttribute('data-theme', 'dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      root.classList.remove('dark');
-      root.setAttribute('data-theme', 'light');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [isDarkMode]);
-
-  useEffect(() => {
     setIsLoggedIn(Boolean(getAuthToken()));
   }, []);
-
-  const toggleTheme = () => setIsDarkMode(prev => !prev);
 
   // Formulario de Cotización
   const [form, setForm] = useState({
@@ -1083,13 +1067,13 @@ export const Landing = () => {
               </span>
             </Link>
 
-            {/* Desktop Nav Links - Con whitespace-nowrap para que nunca se quiebre en dos líneas */}
-            <div className="hidden xl:flex flex-1 min-w-0 items-center justify-start gap-3 xl:gap-4 font-semibold text-[13px] text-slate-600 dark:text-slate-300 whitespace-nowrap">
-              <a href="#quote-section" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navQuoter}</a>
-              <Link to="/tracking" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navTracking}</Link>
-              <a href="#features-section" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navServices}</a>
-              <a href="#destinations-section" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navDestinations}</a>
-              <a href="#pricing-section" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navPricing}</a>
+            {/* Desktop Nav Links - Con separación visual garantizada, sin solapar el logo ni las acciones */}
+            <div className="hidden xl:flex flex-1 min-w-0 items-center justify-center mx-4 2xl:mx-8 gap-2.5 xl:gap-3.5 2xl:gap-5 font-semibold text-[13px] 2xl:text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
+              <a href="#quote-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navQuoter}</a>
+              <Link to="/tracking" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navTracking}</Link>
+              <a href="#features-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navServices}</a>
+              <a href="#destinations-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navDestinations}</a>
+              <a href="#pricing-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navPricing}</a>
             </div>
 
             {/* Desktop Nav Actions */}
@@ -1097,12 +1081,13 @@ export const Landing = () => {
               <CurrencySelector />
               <LanguageSelector />
 
-              <div className="h-6 w-px bg-slate-200 dark:bg-slate-800" />
+              <div className="h-6 w-px bg-slate-200 dark:bg-slate-800 mx-0.5" />
 
               <button 
                 onClick={toggleTheme}
-                className="p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-                aria-label="Toggle Theme"
+                className="p-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer text-slate-700 dark:text-slate-200"
+                aria-label="Cambiar tema"
+                title="Cambiar tema"
               >
                 {isDarkMode ? <Sun className="w-5 h-5 text-yellow-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
               </button>

@@ -5,6 +5,12 @@ type State = { error: Error | null };
 
 export class PanelErrorBoundary extends React.Component<Props, State> {
   state: State = { error: null };
+  props: Props;
+
+  constructor(props: Props) {
+    super(props);
+    this.props = props;
+  }
 
   static getDerivedStateFromError(error: Error) {
     return { error };

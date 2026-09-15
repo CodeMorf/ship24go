@@ -20,8 +20,12 @@ interface ErrorBoundaryState {
   error?: Error;
 }
 export class AdminShipmentsErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false };
+  props: ErrorBoundaryProps;
+
   constructor(props: ErrorBoundaryProps) {
     super(props);
+    this.props = props;
     this.state = { hasError: false };
   }
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
@@ -283,7 +287,7 @@ export const AdminShipmentsComponent = () => {
     if (selectedIds.size === 0) return;
     setIsDeleting(true);
     try {
-      const ids = Array.from(selectedIds);
+      const ids: string[] = Array.from(selectedIds);
       const res = await api.adminBulkDeleteShipments(ids);
       alert(res.message || `${ids.length} envíos eliminados.`);
       setSelectedIds(new Set());
@@ -302,7 +306,7 @@ export const AdminShipmentsComponent = () => {
     setIsBulkStatusMenuOpen(false);
     setIsProcessingBulk(true);
     try {
-      const ids = Array.from(selectedIds);
+      const ids: string[] = Array.from(selectedIds);
       const res = await api.adminBulkUpdateStatus(ids, newStatus);
       alert(res.message || `Estado actualizado a '${newStatus}' para ${ids.length} envíos.`);
       setSelectedIds(new Set());

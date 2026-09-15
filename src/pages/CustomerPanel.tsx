@@ -1527,7 +1527,7 @@ const Quote = () => {
               <div className="border-t border-gray-100 dark:border-gray-800 pt-4 flex justify-between items-baseline">
                 <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Precio Total:</span>
                 {/* SHIP24GO_FX_FORMAT_QUOTE_V1 */}
-                <span className="text-3xl font-black text-blue-600 dark:text-neon-cyan">{format(selectedQuote.total, selectedQuote.currency || form.currency || currency)}</span>
+                <span className="text-3xl font-black text-blue-600 dark:text-neon-cyan">{format(selectedQuote.total, selectedQuote.currency || form.currency || 'EUR')}</span>
               </div>
             </div>
 
@@ -1848,13 +1848,13 @@ const Quote = () => {
                   {/* SHIP24GO_QUOTE_DISCOUNT_PRICE_UI_V1_4_37 */}
                   {Number(q.planDiscountPercent || 0) > 0 && (
                     <div className="mb-1 text-right">
-                      <p className="text-xs text-gray-400 line-through font-bold">{format(q.originalCustomerPrice || q.originalTotal || q.total, q.currency || form.currency || currency)}</p>
+                      <p className="text-xs text-gray-400 line-through font-bold">{format(q.originalCustomerPrice || q.originalTotal || q.total, q.currency || form.currency || 'EUR')}</p>
                       <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-black uppercase">
                         -{Number(q.planDiscountPercent || 0).toFixed(0)}% {q.planName || 'Plan activo'}
                       </p>
                     </div>
                   )}
-                  <p className="text-3xl font-black text-gray-900 dark:text-white">{format(q.customerPrice || q.total, q.currency || form.currency || currency)}</p>
+                  <p className="text-3xl font-black text-gray-900 dark:text-white">{format(q.customerPrice || q.total, q.currency || form.currency || 'EUR')}</p>
                   <p className="text-[10px] text-gray-400 font-bold mt-1">{q.currency || form.currency}</p>
                 </div>
                 <button onClick={() => handleSelectQuoteForPayment(q)} disabled={loading} className="bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-6 py-3 rounded-xl font-bold hover:shadow-lg transition-transform hover:-translate-y-1 cursor-pointer">
