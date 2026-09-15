@@ -1331,3 +1331,269 @@ export const PointRepo = {
   }
 };
 
+// 16. Tarifas Propias Internacionales Ship24Go
+export const TariffRepo = {
+  async getAvailableTariffs(originCountry: string = 'US', destCountry: string = 'DO'): Promise<any[]> {
+    const [rows]: any = await pool.query(
+      `SELECT * FROM international_tariffs 
+       WHERE is_active = 1 AND origin_country = ? AND dest_country = ? 
+       ORDER BY sort_order ASC, base_price ASC`,
+      [originCountry.toUpperCase(), destCountry.toUpperCase()]
+    );
+    return rows;
+  },
+
+  async getAll(): Promise<any[]> {
+    const [rows]: any = await pool.query(
+      `SELECT * FROM international_tariffs ORDER BY origin_country, dest_country, sort_order ASC`
+    );
+    return rows;
+  },
+
+  async getById(id: string): Promise<any | null> {
+    const [rows]: any = await pool.query(`SELECT * FROM international_tariffs WHERE id = ? LIMIT 1`, [id]);
+    return rows[0] || null;
+  }
+};
+
+// 17. Hubs y Centros Logísticos
+export const HubRepo = {
+  async getAll(): Promise<any[]> {
+    const [rows]: any = await pool.query(`SELECT * FROM hubs WHERE is_active = 1 ORDER BY country, city`);
+    return rows;
+  },
+
+  async getById(id: string): Promise<any | null> {
+    const [rows]: any = await pool.query(`SELECT * FROM hubs WHERE id = ? LIMIT 1`, [id]);
+    return rows[0] || null;
+  }
+};
+
+// 18. Sacas / Manifiestos de Consolidación (Regla 10+ Docs a RD)
+export const ManifestRepo = {
+  async getActiveOpenManifest(pointId: string, category: string = 'documents'): Promise<any> {
+    const [existing]: any = await pool.query(
+      `SELECT m.*,
+              (SELECT COUNT(*) FROM shipments s WHERE s.manifest_id = m.id) AS current_items_count
+       FROM point_manifests m
+       WHERE m.point_id = ? AND m.status = 'open' AND m.category = ?
+       ORDER BY m.created_at DESC
+       LIMIT 1`,
+      [pointId, category]
+    );
+
+    if (existing?.length > 0) {
+      const manifest = existing[0];
+      manifest.current_items_count = Number(manifest.current_items_count || 0);
+      manifest.remaining_items = Math.max(0, (manifest.min_items_threshold || 10) - manifest.current_items_count);
+      manifest.is_ready_to_close = manifest.current_items_count >= (manifest.min_items_threshold || 10);
+      return manifest;
+    }
+
+    // Crear nueva saca abierta automáticamente
+    const manifestId = generateId('man_');
+    const year = new Date().getFullYear();
+    const randCode = crypto.randomInt(1000, 9999);
+    const manifestNumber = `MAN-${category === 'documents' ? 'DOC' : 'PAR'}-${year}-${randCode}`;
+
+    await pool.query(
+      `INSERT INTO point_manifests (id, manifest_number, point_id, origin_hub_id, destination_hub_id, category, total_items, min_items_threshold, status)
+       VALUES (?, ?, ?, 'hub_bos_01', 'hub_sdq_01', ?, 0, 10, 'open')`,
+      [manifestId, manifestNumber, pointId, category]
+    );
+
+    return {
+      id: manifestId,
+      manifest_number: manifestNumber,
+      point_id: pointId,
+      origin_hub_id: 'hub_bos_01',
+      destination_hub_id: 'hub_sdq_01',
+      category,
+      total_items: 0,
+      current_items_count: 0,
+      min_items_threshold: 10,
+      remaining_items: 10,
+      is_ready_to_close: false,
+      status: 'open',
+      created_at: new Date().toISOString()
+    };
+  },
+
+  async getManifestById(id: string): Promise<any | null> {
+    const [rows]: any = await pool.query(
+      `SELECT m.*,
+              (SELECT COUNT(*) FROM shipments s WHERE s.manifest_id = m.id) AS current_items_count,
+              h_orig.name AS origin_hub_name, h_orig.city AS origin_hub_city,
+              h_dest.name AS destination_hub_name, h_dest.city AS destination_hub_city
+       FROM point_manifests m
+       LEFT JOIN hubs h_orig ON h_orig.id = m.origin_hub_id
+       LEFT JOIN hubs h_dest ON h_dest.id = m.destination_hub_id
+       WHERE m.id = ? LIMIT 1`,
+      [id]
+    );
+    return rows[0] || null;
+  },
+
+  async getManifestShipments(manifestId: string): Promise<any[]> {
+    const [rows]: any = await pool.query(
+      `SELECT s.id, s.tracking_code, s.status, s.status_label, s.sender_json, s.recipient_json, s.created_at,
+              po.sale_amount, po.commission_amount, po.receipt_code, po.product_code
+       FROM shipments s
+       LEFT JOIN point_operations po ON po.shipment_id = s.id
+       WHERE s.manifest_id = ?
+       ORDER BY s.created_at ASC`,
+      [manifestId]
+    );
+    return rows.map((r: any) => ({
+      ...r,
+      sender: typeof r.sender_json === 'string' ? JSON.parse(r.sender_json) : (r.sender_json || {}),
+      recipient: typeof r.recipient_json === 'string' ? JSON.parse(r.recipient_json) : (r.recipient_json || {})
+    }));
+  },
+
+  async getPointManifests(pointId: string): Promise<any[]> {
+    const [rows]: any = await pool.query(
+      `SELECT m.*,
+              (SELECT COUNT(*) FROM shipments s WHERE s.manifest_id = m.id) AS current_items_count,
+              h_dest.name AS destination_hub_name, h_dest.city AS destination_hub_city
+       FROM point_manifests m
+       LEFT JOIN hubs h_dest ON h_dest.id = m.destination_hub_id
+       WHERE m.point_id = ?
+       ORDER BY FIELD(m.status, 'open', 'closed', 'in_transit_hub', 'received_hub', 'completed'), m.created_at DESC`,
+      [pointId]
+    );
+    return rows.map((r: any) => ({
+      ...r,
+      current_items_count: Number(r.current_items_count || 0),
+      is_ready_to_close: Number(r.current_items_count || 0) >= (r.min_items_threshold || 10)
+    }));
+  },
+
+  async attachShipmentToManifest(manifestId: string, shipmentId: string): Promise<void> {
+    await pool.query(`UPDATE shipments SET manifest_id = ? WHERE id = ?`, [manifestId, shipmentId]);
+    await pool.query(
+      `UPDATE point_manifests SET total_items = (SELECT COUNT(*) FROM shipments WHERE manifest_id = ?) WHERE id = ?`,
+      [manifestId, manifestId]
+    );
+  },
+
+  async closeManifest(manifestId: string, pointId: string, notes?: string): Promise<any> {
+    const manifest = await this.getManifestById(manifestId);
+    if (!manifest) throw new Error('Manifiesto no encontrado.');
+    if (manifest.point_id !== pointId) throw new Error('No autorizado para modificar este manifiesto.');
+    if (manifest.status !== 'open') throw new Error('Este manifiesto ya fue cerrado previamente.');
+
+    const masterTracking = `MST-${manifest.category === 'documents' ? 'DOC' : 'PAR'}-${Date.now().toString().slice(-8)}`;
+
+    await pool.query(
+      `UPDATE point_manifests 
+       SET status = 'closed',
+           master_tracking_code = ?,
+           courier_name = 'Ship24Go Air Hub Express',
+           provider_code = 'easypost',
+           closed_at = NOW(),
+           notes = COALESCE(?, notes)
+       WHERE id = ?`,
+      [masterTracking, notes || null, manifestId]
+    );
+
+    // Actualizar todos los envíos dentro de la saca
+    await pool.query(
+      `UPDATE shipments 
+       SET status = 'at_hub', 
+           status_label = 'En Hub Internacional / Saca Consolidada',
+           master_tracking_code = ? 
+       WHERE manifest_id = ?`,
+      [masterTracking, manifestId]
+    );
+
+    // Registrar evento de trazabilidad en lote para cada envío
+    const [shipmentRows]: any = await pool.query(`SELECT id, tracking_code FROM shipments WHERE manifest_id = ?`, [manifestId]);
+    for (const shp of shipmentRows) {
+      try {
+        await TrackingEventRepo.create({
+          shipment_id: shp.id,
+          tracking_code: shp.tracking_code,
+          status_code: 'at_hub',
+          status_label: 'Consolidado en Hub',
+          description: `Consolidado en Manifiesto ${manifest.manifest_number} (Saca cerrada con ${manifest.current_items_count} envíos). Master Tracking: ${masterTracking}. En ruta a Hub Destino.`,
+          location: manifest.origin_hub_city || 'Boston Logistics Hub'
+        });
+      } catch {}
+    }
+
+    return await this.getManifestById(manifestId);
+  }
+};
+
+// 19. Movimientos de Caja del Point (Efectivo en Mostrador)
+export const PointCashRepo = {
+  async recordMovement(data: {
+    pointId: string;
+    operationId?: string;
+    shipmentId?: string;
+    movementType: string;
+    amount: number;
+    currency?: string;
+    notes?: string;
+    createdBy?: string;
+  }): Promise<void> {
+    await pool.query(
+      `INSERT INTO point_cash_register (id, point_id, operation_id, shipment_id, movement_type, amount, currency, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        generateId('csh_'),
+        data.pointId,
+        data.operationId || null,
+        data.shipmentId || null,
+        data.movementType || 'sale_cash',
+        data.amount,
+        data.currency || 'USD',
+        data.notes || null,
+        data.createdBy || null
+      ]
+    );
+  },
+
+  async getDailySummary(pointId: string): Promise<any> {
+    const [cashRows]: any = await pool.query(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN movement_type = 'sale_cash' THEN amount ELSE 0 END), 0) AS cash_in_hand_today,
+         COALESCE(SUM(CASE WHEN movement_type = 'sale_card' THEN amount ELSE 0 END), 0) AS card_sales_today,
+         COALESCE(SUM(amount), 0) AS total_revenue_today,
+         COUNT(*) AS movements_count_today
+       FROM point_cash_register
+       WHERE point_id = ? AND DATE(created_at) = CURDATE()`,
+      [pointId]
+    );
+
+    const [allOperations]: any = await pool.query(
+      `SELECT 
+         COUNT(*) AS operations_today,
+         COALESCE(SUM(sale_amount), 0) AS sales_today,
+         COALESCE(SUM(commission_amount), 0) AS commissions_today
+       FROM point_operations
+       WHERE point_id = ? AND DATE(created_at) = CURDATE()`,
+      [pointId]
+    );
+
+    return {
+      cashInHandToday: Number(cashRows[0]?.cash_in_hand_today || 0),
+      cardSalesToday: Number(cashRows[0]?.card_sales_today || 0),
+      totalRevenueToday: Number(cashRows[0]?.total_revenue_today || 0),
+      movementsCountToday: Number(cashRows[0]?.movements_count_today || 0),
+      operationsToday: Number(allOperations[0]?.operations_today || 0),
+      salesToday: Number(allOperations[0]?.sales_today || 0),
+      commissionsToday: Number(allOperations[0]?.commissions_today || 0)
+    };
+  },
+
+  async getMovements(pointId: string, limit: number = 50): Promise<any[]> {
+    const [rows]: any = await pool.query(
+      `SELECT * FROM point_cash_register WHERE point_id = ? ORDER BY created_at DESC LIMIT ?`,
+      [pointId, limit]
+    );
+    return rows;
+  }
+};
+

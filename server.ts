@@ -25,6 +25,10 @@ import {
   RoleRepo,
   TeamRepo,
   PointRepo,
+  TariffRepo,
+  HubRepo,
+  ManifestRepo,
+  PointCashRepo,
   hashPassword,
   generateId
 } from './server/db/repos';
@@ -6056,6 +6060,313 @@ app.post('/api/point/operations', authMiddleware, async (req: any, res) => {
   }
 });
 
+// ========== TERMINAL POS MOSTRADOR, SACAS/MANIFIESTOS Y FINANZAS ==========
+
+// 1. Tarifas Oficiales Propias Ship24Go para Points
+app.get('/api/point/tariffs', authMiddleware, async (req: any, res) => {
+  try {
+    const origin = String(req.query.originCountry || 'US').toUpperCase();
+    const dest = String(req.query.destCountry || 'DO').toUpperCase();
+    const tariffs = await TariffRepo.getAvailableTariffs(origin, dest);
+    res.json({ tariffs });
+  } catch (error: any) {
+    console.error('[Point Tariffs Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar las tarifas disponibles.' });
+  }
+});
+
+// 2. Saca / Manifiesto abierto actual (para documentos consolidados a RD)
+app.get('/api/point/manifests/current-saca', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const category = String(req.query.category || 'documents');
+    const manifest = await ManifestRepo.getActiveOpenManifest(point.id, category);
+    const shipments = await ManifestRepo.getManifestShipments(manifest.id);
+
+    const threshold = manifest.min_items_threshold || 10;
+    const currentCount = shipments.length;
+    const remaining = Math.max(0, threshold - currentCount);
+    const isReadyToClose = currentCount >= threshold;
+
+    res.json({
+      manifest: {
+        ...manifest,
+        current_items_count: currentCount,
+        threshold,
+        remaining,
+        is_ready_to_close: isReadyToClose
+      },
+      shipments
+    });
+  } catch (error: any) {
+    console.error('[Point Current Saca Error]:', error);
+    res.status(500).json({ error: 'No se pudo obtener el estado de la saca actual.' });
+  }
+});
+
+// 3. Crear Envío desde el Terminal POS de Mostrador
+app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+    if (point.status !== 'approved') {
+      return res.status(403).json({ error: 'El Point no se encuentra habilitado para emitir envíos.' });
+    }
+
+    const { tariffId, sender, recipient, package: pkg, paymentMethod, notes } = req.body || {};
+    if (!tariffId) return res.status(400).json({ error: 'Debes seleccionar un producto/tarifa.' });
+    if (!recipient?.name || !recipient?.phone || !recipient?.address || !recipient?.city) {
+      return res.status(400).json({ error: 'Los datos del destinatario están incompletos.' });
+    }
+
+    const tariff = await TariffRepo.getById(tariffId);
+    if (!tariff) return res.status(404).json({ error: 'Tarifa seleccionada no válida.' });
+
+    const weightKg = Math.max(0.1, Number(pkg?.weightKg || tariff.max_weight_kg || 0.5));
+    const basePrice = Number(tariff.base_price || 0);
+    const extraKg = weightKg > Number(tariff.max_weight_kg || 1)
+      ? Math.ceil(weightKg - Number(tariff.max_weight_kg || 1)) * Number(tariff.extra_kg_price || 0)
+      : 0;
+    const totalPrice = Math.round((basePrice + extraKg) * 100) / 100;
+    const commission = Number(tariff.point_commission || 0);
+    const payMethod = paymentMethod === 'card' ? 'card' : 'cash';
+
+    // Generar código de tracking propio Ship24Go para el cliente
+    const suffix = crypto.randomBytes(3).toString('hex').toUpperCase();
+    const trackingCode = `S24RD-${Date.now().toString(36).toUpperCase()}-${suffix}`;
+    const shipmentId = generateId('shp_');
+
+    // Regla especial documentos a República Dominicana: Consolidar en Saca
+    let manifestId: string | null = null;
+    const isDocToRD = tariff.dest_country === 'DO' && ['document', 'legal_document'].includes(tariff.product_type);
+    if (isDocToRD) {
+      const saca = await ManifestRepo.getActiveOpenManifest(point.id, 'documents');
+      manifestId = saca.id;
+    }
+
+    const senderData = {
+      name: String(sender?.name || point.contact_name).trim(),
+      company: String(sender?.company || point.business_name).trim(),
+      phone: String(sender?.phone || point.phone || '').trim(),
+      email: String(sender?.email || point.email || '').trim(),
+      address: String(sender?.address || point.address_line1).trim(),
+      city: String(sender?.city || point.city).trim(),
+      state: String(sender?.state || point.province || 'MA').trim(),
+      zipCode: String(sender?.zipCode || point.postal_code || '02114').trim(),
+      country: String(sender?.country || point.country || 'US').trim()
+    };
+
+    const recipientData = {
+      name: String(recipient.name).trim(),
+      phone: String(recipient.phone).trim(),
+      email: String(recipient.email || '').trim(),
+      idNumber: String(recipient.idNumber || '').trim(),
+      address: String(recipient.address).trim(),
+      city: String(recipient.city).trim(),
+      province: String(recipient.province || recipient.city).trim(),
+      zipCode: String(recipient.zipCode || '10101').trim(),
+      country: String(recipient.country || tariff.dest_country || 'DO').trim(),
+      notes: String(recipient.notes || notes || '').trim()
+    };
+
+    // Insertar envío
+    await pool.query(
+      `INSERT INTO shipments (
+        id, user_id, tracking_code, order_number, reference, status, status_label,
+        sender_json, recipient_json, point_id, manifest_id, hub_destination_id,
+        is_point_walkin, point_payment_method, provider_payload_json
+      ) VALUES (?, ?, ?, ?, ?, 'point_received', 'Recibido en Point - Mostrador', ?, ?, ?, ?, ?, 1, ?, ?)`,
+      [
+        shipmentId,
+        req.user.id,
+        trackingCode,
+        trackingCode,
+        `POINT-${point.id.slice(0, 8)}`,
+        JSON.stringify(senderData),
+        JSON.stringify(recipientData),
+        point.id,
+        manifestId,
+        tariff.dest_hub_id || 'hub_sdq_01',
+        payMethod,
+        JSON.stringify({
+          price: totalPrice,
+          currency: tariff.currency || 'USD',
+          tariffId: tariff.id,
+          tariffName: tariff.product_name,
+          commission
+        })
+      ]
+    );
+
+    // Insertar direcciones normalizadas
+    await pool.query(
+      `INSERT INTO shipment_addresses (id, shipment_id, type, full_name, company, country, city, zip_code, address, phone, email)
+       VALUES (?, ?, 'sender', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [generateId('adr_'), shipmentId, senderData.name, senderData.company, senderData.country, senderData.city, senderData.zipCode, senderData.address, senderData.phone, senderData.email]
+    );
+    await pool.query(
+      `INSERT INTO shipment_addresses (id, shipment_id, type, full_name, country, city, zip_code, address, phone, email, observations)
+       VALUES (?, ?, 'recipient', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [generateId('adr_'), shipmentId, recipientData.name, recipientData.country, recipientData.city, recipientData.zipCode, recipientData.address, recipientData.phone, recipientData.email, recipientData.notes]
+    );
+
+    // Insertar bulto / paquete
+    await pool.query(
+      `INSERT INTO shipment_packages (id, shipment_id, package_code, width_cm, height_cm, length_cm, weight_kg, quantity)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+      [
+        generateId('pkg_'),
+        shipmentId,
+        trackingCode,
+        Number(pkg?.widthCm || 15),
+        Number(pkg?.heightCm || 5),
+        Number(pkg?.lengthCm || 20),
+        weightKg
+      ]
+    );
+
+    // Si entra en saca, vincular y recalcular items
+    if (manifestId) {
+      await ManifestRepo.attachShipmentToManifest(manifestId, shipmentId);
+    }
+
+    // Registrar en point_operations para comisiones y liquidación
+    const operationId = generateId('pop_');
+    const productId = ['document', 'legal_document'].includes(tariff.product_type) ? 'pp_document' : 'pp_us_pkg';
+    await PointRepo.createOperation({
+      id: operationId,
+      point_id: point.id,
+      shipment_id: shipmentId,
+      product_id: productId,
+      product_code: tariff.product_type,
+      sale_amount: totalPrice,
+      commission_amount: commission,
+      currency: tariff.currency || 'USD',
+      status: 'received',
+      receipt_code: trackingCode
+    });
+
+    // Registrar arqueo en caja (Efectivo o Tarjeta)
+    await PointCashRepo.recordMovement({
+      pointId: point.id,
+      operationId,
+      shipmentId,
+      movementType: payMethod === 'cash' ? 'sale_cash' : 'sale_card',
+      amount: totalPrice,
+      currency: tariff.currency || 'USD',
+      notes: `Venta Mostrador: ${tariff.product_name} (${payMethod === 'cash' ? 'Efectivo recibido en caja' : 'Tarjeta'})`,
+      createdBy: req.user.id
+    });
+
+    // Evento de Trazabilidad inicial
+    await TrackingEventRepo.create({
+      shipment_id: shipmentId,
+      tracking_code: trackingCode,
+      status_code: 'point_received',
+      status_label: 'Recibido en Mostrador',
+      description: `Envío recibido en ${point.business_name} (${point.city}, ${point.country}). Pago confirmado ($${totalPrice.toFixed(2)} ${tariff.currency} - ${payMethod.toUpperCase()}).`,
+      location: `${point.city}, ${point.country}`
+    });
+
+    const sacaStatus = manifestId ? await ManifestRepo.getActiveOpenManifest(point.id, 'documents') : null;
+
+    res.status(201).json({
+      success: true,
+      shipment: {
+        id: shipmentId,
+        trackingCode,
+        receiptCode: trackingCode,
+        tariffName: tariff.product_name,
+        price: totalPrice,
+        commission,
+        currency: tariff.currency || 'USD',
+        paymentMethod: payMethod,
+        isConsolidatedInSaca: isDocToRD,
+        manifestId,
+        sender: senderData,
+        recipient: recipientData,
+        createdAt: new Date().toISOString()
+      },
+      saca: sacaStatus
+    });
+  } catch (error: any) {
+    console.error('[Point Terminal Create Error]:', error);
+    res.status(500).json({ error: error?.message || 'No se pudo procesar el envío en el mostrador.' });
+  }
+});
+
+// 4. Cerrar Saca de Documentos y Generar Manifiesto / Master Tracking
+app.post('/api/point/manifests/close-saca', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const { manifestId, notes } = req.body || {};
+    if (!manifestId) return res.status(400).json({ error: 'ID de manifiesto requerido.' });
+
+    const closedManifest = await ManifestRepo.closeManifest(manifestId, point.id, notes);
+    res.json({ success: true, manifest: closedManifest });
+  } catch (error: any) {
+    console.error('[Close Saca Error]:', error);
+    res.status(400).json({ error: error?.message || 'No se pudo cerrar la saca.' });
+  }
+});
+
+// 5. Listar Manifiestos y Sacas del Point
+app.get('/api/point/manifests', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const manifests = await ManifestRepo.getPointManifests(point.id);
+    res.json({ manifests });
+  } catch (error: any) {
+    console.error('[Point Manifests List Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar los manifiestos.' });
+  }
+});
+
+// 6. Detalle de Manifiesto con sus Envíos Consolidados
+app.get('/api/point/manifests/:id', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const manifest = await ManifestRepo.getManifestById(req.params.id);
+    if (!manifest || manifest.point_id !== point.id) {
+      return res.status(404).json({ error: 'Manifiesto no encontrado.' });
+    }
+    const shipments = await ManifestRepo.getManifestShipments(manifest.id);
+    res.json({ manifest, shipments });
+  } catch (error: any) {
+    console.error('[Point Manifest Detail Error]:', error);
+    res.status(500).json({ error: 'No se pudo obtener el detalle del manifiesto.' });
+  }
+});
+
+// 7. Resumen de Caja y Arqueo Diario del Point
+app.get('/api/point/finance/summary', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const summary = await PointCashRepo.getDailySummary(point.id);
+    const movements = await PointCashRepo.getMovements(point.id, 50);
+
+    res.json({
+      summary,
+      movements,
+      businessName: point.business_name,
+      currency: point.currency || 'USD'
+    });
+  } catch (error: any) {
+    console.error('[Point Finance Summary Error]:', error);
+    res.status(500).json({ error: 'No se pudo cargar el resumen financiero.' });
+  }
+});
+
 // Administración del registro y habilitación de Points.
 app.get('/api/admin/points', authMiddleware, requireAdminOrPermission('points.view'), async (_req: any, res) => {
   try {
@@ -10251,19 +10562,62 @@ app.get('/api/tracking/:code', async (req, res) => {
     const providerPayload = typeof current.provider_payload_json === 'string' ? JSON.parse(current.provider_payload_json || '{}') : (current.provider_payload_json || {});
     const courierName = String(providerPayload?.courier || providerPayload?.spedireproWebhook?.courier || providerPayload?.detail?.courier || providerPayload?.create?.courier || '').trim();
 
+    // Información de Consolidación / Saca y Trazabilidad 3 Niveles
+    let manifestInfo: any = null;
+    if (current.manifest_id) {
+      try {
+        const [manRows]: any = await pool.query(
+          `SELECT m.id, m.manifest_number, m.category, m.status, m.master_tracking_code, m.courier_name,
+                  h_orig.name AS origin_hub_name, h_orig.city AS origin_hub_city,
+                  h_dest.name AS destination_hub_name, h_dest.city AS destination_hub_city,
+                  p.business_name AS point_name, p.city AS point_city
+           FROM point_manifests m
+           LEFT JOIN hubs h_orig ON h_orig.id = m.origin_hub_id
+           LEFT JOIN hubs h_dest ON h_dest.id = m.destination_hub_id
+           LEFT JOIN points p ON p.id = m.point_id
+           WHERE m.id = ? LIMIT 1`,
+          [current.manifest_id]
+        );
+        if (manRows?.[0]) {
+          manifestInfo = {
+            manifestNumber: manRows[0].manifest_number,
+            category: manRows[0].category,
+            status: manRows[0].status,
+            masterTrackingCode: manRows[0].master_tracking_code,
+            courierName: manRows[0].courier_name,
+            originHub: `${manRows[0].origin_hub_name || 'Hub Origen'} (${manRows[0].origin_hub_city || ''})`,
+            destinationHub: `${manRows[0].destination_hub_name || 'Hub SDQ Central'} (${manRows[0].destination_hub_city || 'Santo Domingo'})`,
+            pointName: manRows[0].point_name,
+            pointCity: manRows[0].point_city
+          };
+        }
+      } catch (e) {
+        console.error('[Tracking Manifest Load Warning]:', e);
+      }
+    }
+
     res.json({
       trackingCode: current.tracking_code || code,
       providerTrackingCode: current.provider_tracking_code || '',
       status: current.status_label || 'Creado',
       statusCode: current.status || 'created',
       language: requestedLang,
-      courier: courierName || '',
+      courier: manifestInfo?.courierName || courierName || '',
       trackingUrl: current.track_url || '',
       labelReady: Boolean(current.label_base64 || current.label_url),
-      recipient: recipient?.city || 'ES',
-      destination: [recipient?.city, recipient?.country].filter(Boolean).join(', '),
+      recipient: recipient?.city || 'DO',
+      destination: [recipient?.city, recipient?.province, recipient?.country].filter(Boolean).join(', '),
       updatedAt: current.updated_at || current.created_at,
-      events: normalizedEvents
+      events: normalizedEvents,
+      manifest: manifestInfo,
+      masterTrackingCode: current.master_tracking_code || manifestInfo?.masterTrackingCode || null,
+      isPointShipment: !!current.point_id,
+      trackingLevels: {
+        level1_client: current.tracking_code || code,
+        level2_manifest: manifestInfo?.manifestNumber || null,
+        level3_master: current.master_tracking_code || manifestInfo?.masterTrackingCode || null,
+        masterCourier: manifestInfo?.courierName || courierName || null
+      }
     });
   } catch (error) {
     console.error('[Diagnóstico Interno] Error tracking:', error);

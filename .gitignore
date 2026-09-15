@@ -17,3 +17,6 @@ storage/
 uploads/
 releases/
 .well-known/
+tmp/
+.remote-audit/
+

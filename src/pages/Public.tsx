@@ -173,11 +173,49 @@ const Tracking = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-10">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
               <div className="rounded-2xl bg-slate-50 dark:bg-dark-900/60 border border-slate-100 dark:border-gray-700 p-4"><p className="text-xs font-black uppercase text-slate-400 mb-1">Tracking</p><p className="font-mono font-black text-slate-900 dark:text-white break-all">{data.providerTrackingCode || data.trackingCode}</p></div>
               <div className="rounded-2xl bg-slate-50 dark:bg-dark-900/60 border border-slate-100 dark:border-gray-700 p-4"><p className="text-xs font-black uppercase text-slate-400 mb-1">Estado</p><p className="font-black text-slate-900 dark:text-white">{data.status}</p></div>
               <div className="rounded-2xl bg-slate-50 dark:bg-dark-900/60 border border-slate-100 dark:border-gray-700 p-4"><p className="text-xs font-black uppercase text-slate-400 mb-1">Etiqueta</p><p className={`font-black ${data.labelReady ? 'text-emerald-600' : 'text-slate-500 dark:text-slate-400'}`}>{data.labelReady ? (language === 'it' ? 'Disponibile' : 'Disponible') : (language === 'it' ? 'In preparazione' : 'En preparación')}</p></div>
             </div>
+
+            {data.manifest && (
+              <div className="mb-10 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50/60 dark:from-slate-900 dark:to-blue-950/40 border border-blue-200 dark:border-blue-900/60 p-5">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-600 dark:bg-cyan-400 animate-pulse" />
+                    <span className="text-xs font-black uppercase tracking-wider text-blue-700 dark:text-cyan-300">
+                      Trazabilidad Logística 3 Niveles (Ship24Go Saca & Hub)
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-500">
+                    {data.manifest.destinationHub}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="bg-white/90 dark:bg-dark-800/90 rounded-xl p-3 border border-blue-100 dark:border-gray-700">
+                    <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Nivel 1 · Tracking Cliente</p>
+                    <p className="font-mono font-black text-blue-600 dark:text-cyan-400 truncate">{data.trackingCode}</p>
+                    <p className="text-[10px] text-slate-500 mt-1">Emisor: {data.manifest.pointName || 'Point Mostrador'}</p>
+                  </div>
+
+                  <div className="bg-white/90 dark:bg-dark-800/90 rounded-xl p-3 border border-blue-100 dark:border-gray-700">
+                    <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Nivel 2 · Saca Consolidada</p>
+                    <p className="font-mono font-black text-slate-900 dark:text-white truncate">{data.manifest.manifestNumber}</p>
+                    <p className="text-[10px] text-slate-500 mt-1">Estado: <span className="font-bold uppercase text-blue-600 dark:text-cyan-400">{data.manifest.status}</span></p>
+                  </div>
+
+                  <div className="bg-white/90 dark:bg-dark-800/90 rounded-xl p-3 border border-blue-100 dark:border-gray-700">
+                    <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Nivel 3 · Master Tracking</p>
+                    <p className="font-mono font-black text-emerald-600 dark:text-emerald-400 truncate">
+                      {data.masterTrackingCode || 'En proceso (Acumulando piezas)'}
+                    </p>
+                    <p className="text-[10px] text-slate-500 mt-1">Courier: {data.manifest.courierName || 'Air Hub Express'}</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-0 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-blue-200 before:to-gray-100 dark:before:from-neon-cyan/30 dark:before:to-gray-800">
               {data.events.map((ev: any, i: number) => (
