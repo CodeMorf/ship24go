@@ -72,7 +72,7 @@ export async function initDb() {
         const hashedPassword = await hashPassword('BostonPoint2026!');
         await pool.query(
           `INSERT INTO users (id, name, email, password_hash, role, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'point', 'active', NOW(), NOW())`,
+           VALUES (?, ?, ?, ?, 'customer', 'active', NOW(), NOW())`,
           [bostonUserId, 'David Miller (Boston Express)', 'boston.point@ship24go.com', hashedPassword]
         );
       }
@@ -970,11 +970,13 @@ export const TeamRepo = {
   async getMembers(): Promise<any[]> {
     const [rows]: any = await pool.query(`
       SELECT 
-        u.id, u.email, u.name, u.phone, u.role, u.role_id, u.custom_permissions, u.status, u.created_at, u.updated_at,
+        u.id, u.email, u.name, u.phone, u.avatar_url, u.role, u.role_id, u.custom_permissions, u.status, u.created_at, u.updated_at,
         r.name as role_name, r.slug as role_slug, r.permissions as role_permissions, r.description as role_description
       FROM users u
       LEFT JOIN roles r ON u.role_id = r.id OR u.role = r.slug
-      WHERE u.role != 'customer' OR u.role_id IS NOT NULL
+      WHERE (u.role IN ('super_admin', 'admin', 'support', 'finance', 'operations') OR u.role_id IS NOT NULL)
+        AND u.role NOT IN ('customer', 'point')
+        AND NOT EXISTS (SELECT 1 FROM points p WHERE p.user_id = u.id)
       ORDER BY u.created_at ASC
     `);
     return rows.map((u: any) => {
@@ -991,6 +993,7 @@ export const TeamRepo = {
         email: u.email,
         name: u.name,
         phone: u.phone,
+        avatar_url: u.avatar_url || null,
         role: u.role,
         role_id: u.role_id,
         role_name: u.role_name || (u.role === 'super_admin' ? 'Super Administrador' : (u.role === 'support' ? 'Soporte' : u.role)),
@@ -1008,16 +1011,18 @@ export const TeamRepo = {
     const role = data.role || 'support';
     const roleId = data.role_id || null;
     const customPerms = data.custom_permissions ? JSON.stringify(data.custom_permissions) : null;
+    const avatarUrl = data.avatar_url || null;
 
     await pool.query(
-      `INSERT INTO users (id, email, password_hash, name, phone, country, currency, role, role_id, custom_permissions, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, email, password_hash, name, phone, avatar_url, country, currency, role, role_id, custom_permissions, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         data.email.toLowerCase().trim(),
         passwordHash,
         data.name.trim(),
         data.phone || '',
+        avatarUrl,
         data.country || 'ES',
         data.currency || 'EUR',
         role,
@@ -1027,7 +1032,7 @@ export const TeamRepo = {
       ]
     );
 
-    const [rows]: any = await pool.query('SELECT id, email, name, phone, role, role_id, status, created_at FROM users WHERE id = ?', [id]);
+    const [rows]: any = await pool.query('SELECT id, email, name, phone, avatar_url, role, role_id, status, created_at FROM users WHERE id = ?', [id]);
     return rows[0];
   },
 
@@ -1037,6 +1042,7 @@ export const TeamRepo = {
 
     if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
     if (data.phone !== undefined) { fields.push('phone = ?'); values.push(data.phone); }
+    if (data.avatar_url !== undefined) { fields.push('avatar_url = ?'); values.push(data.avatar_url || null); }
     if (data.role !== undefined) { fields.push('role = ?'); values.push(data.role); }
     if (data.role_id !== undefined) { fields.push('role_id = ?'); values.push(data.role_id); }
     if (data.status !== undefined) { fields.push('status = ?'); values.push(data.status); }
@@ -1054,7 +1060,7 @@ export const TeamRepo = {
       await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, values);
     }
 
-    const [rows]: any = await pool.query('SELECT id, email, name, phone, role, role_id, status, created_at FROM users WHERE id = ?', [id]);
+    const [rows]: any = await pool.query('SELECT id, email, name, phone, avatar_url, role, role_id, status, created_at FROM users WHERE id = ?', [id]);
     return rows[0];
   },
 
@@ -1091,6 +1097,7 @@ export const PointRepo = {
               exec.name AS executive_name,
               exec.email AS executive_email,
               exec.phone AS executive_phone,
+              exec.avatar_url AS executive_avatar_url,
               exec.status AS executive_status
        FROM points p
        LEFT JOIN users exec ON exec.id = p.executive_user_id
@@ -1104,7 +1111,7 @@ export const PointRepo = {
     const [rows]: any = await pool.query(
       `SELECT p.*,
               u.name AS user_name, u.email AS user_email, u.phone AS user_phone, u.status AS user_status,
-              exec.name AS executive_name, exec.email AS executive_email, exec.phone AS executive_phone, exec.status AS executive_status
+              exec.name AS executive_name, exec.email AS executive_email, exec.phone AS executive_phone, exec.avatar_url AS executive_avatar_url, exec.status AS executive_status
        FROM points p
        INNER JOIN users u ON u.id = p.user_id
        LEFT JOIN users exec ON exec.id = p.executive_user_id
@@ -1118,7 +1125,7 @@ export const PointRepo = {
     const [rows]: any = await pool.query(
       `SELECT p.*,
               u.name AS user_name, u.email AS user_email, u.phone AS user_phone, u.status AS user_status,
-              exec.name AS executive_name, exec.email AS executive_email, exec.phone AS executive_phone
+              exec.name AS executive_name, exec.email AS executive_email, exec.phone AS executive_phone, exec.avatar_url AS executive_avatar_url
        FROM points p
        INNER JOIN users u ON u.id = p.user_id
        LEFT JOIN users exec ON exec.id = p.executive_user_id
@@ -1268,10 +1275,12 @@ export const PointRepo = {
 
   async getChatMessages(pointId: string): Promise<any[]> {
     const [rows]: any = await pool.query(
-      `SELECT id, point_id, sender_user_id, sender_role, sender_name, message, is_read, created_at
-       FROM point_chat_messages
-       WHERE point_id = ?
-       ORDER BY created_at ASC`,
+      `SELECT m.id, m.point_id, m.sender_user_id, m.sender_role, m.sender_name, m.message, m.is_read, m.created_at,
+              u.avatar_url AS sender_avatar_url
+       FROM point_chat_messages m
+       LEFT JOIN users u ON u.id = m.sender_user_id
+       WHERE m.point_id = ?
+       ORDER BY m.created_at ASC`,
       [pointId]
     );
     return rows;

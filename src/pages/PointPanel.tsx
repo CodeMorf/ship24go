@@ -189,16 +189,31 @@ export default function PointPanel() {
                 <p className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-cyan-400">Ejecutivo Asignado</p>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Soporte activo" />
               </div>
-              <p className="font-black text-slate-900 dark:text-white mt-2 text-base leading-snug">
-                {point?.executive?.name || 'Equipo Central Ship24Go'}
-              </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                {point?.executive?.email || 'soporte@ship24go.com'}
-              </p>
+              <div className="flex items-center gap-3 mt-3">
+                {point?.executive?.avatar_url ? (
+                  <img
+                    src={point.executive.avatar_url}
+                    alt={point?.executive?.name || 'Ejecutivo'}
+                    className="w-12 h-12 rounded-2xl object-cover ring-2 ring-blue-500/20 shadow-xs shrink-0"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black flex items-center justify-center text-lg shadow-xs shrink-0">
+                    {(point?.executive?.name || 'S').charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="font-black text-slate-900 dark:text-white text-base leading-snug truncate">
+                    {point?.executive?.name || 'Equipo Central Ship24Go'}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                    {point?.executive?.email || 'soporte@ship24go.com'}
+                  </p>
+                </div>
+              </div>
             </div>
             <button
               onClick={openChatModal}
-              className="mt-3 w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+              className="mt-4 w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer"
             >
               <MessageSquare className="w-3.5 h-3.5" />
               <span>Chatear ahora</span>
@@ -391,9 +406,17 @@ export default function PointPanel() {
             {/* Header */}
             <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/50">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-xs">
-                  {(point?.executive?.name || 'S').charAt(0).toUpperCase()}
-                </div>
+                {point?.executive?.avatar_url ? (
+                  <img
+                    src={point.executive.avatar_url}
+                    alt={point?.executive?.name || 'Ejecutivo'}
+                    className="w-10 h-10 rounded-2xl object-cover ring-2 ring-blue-500/20 shadow-xs shrink-0"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-2xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                    {(point?.executive?.name || 'S').charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="font-black text-slate-900 dark:text-white text-base leading-snug">
@@ -410,7 +433,7 @@ export default function PointPanel() {
               </div>
               <button
                 onClick={() => setShowChat(false)}
-                className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors"
+                className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-300 flex items-center justify-center transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -428,14 +451,30 @@ export default function PointPanel() {
               ) : (
                 chatMessages.map((msg) => {
                   const isMe = msg.sender_role === 'point';
+                  const avatarToShow = msg.sender_avatar_url || (!isMe ? point?.executive?.avatar_url : null);
                   return (
                     <div
                       key={msg.id}
                       className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
                     >
-                      <span className="text-[10px] font-bold text-slate-400 mb-1 px-1">
-                        {msg.sender_name} · {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                      <div className={`flex items-center gap-1.5 mb-1 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
+                        {!isMe && (
+                          avatarToShow ? (
+                            <img
+                              src={avatarToShow}
+                              alt={msg.sender_name}
+                              className="w-4 h-4 rounded-full object-cover ring-1 ring-slate-300 dark:ring-slate-600 shrink-0"
+                            />
+                          ) : (
+                            <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[9px] font-bold flex items-center justify-center shrink-0">
+                              {(msg.sender_name || 'E').charAt(0).toUpperCase()}
+                            </span>
+                          )
+                        )}
+                        <span className="text-[10px] font-bold text-slate-400">
+                          {msg.sender_name} · {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
                       <div
                         className={`max-w-[82%] rounded-2xl px-4 py-2.5 text-sm ${
                           isMe

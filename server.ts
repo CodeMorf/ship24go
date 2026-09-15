@@ -5859,7 +5859,8 @@ app.get('/api/public/point-executive/:id', async (req, res) => {
         name: user.name,
         email: user.email,
         phone: user.phone || null,
-        role: user.role
+        role: user.role,
+        avatar_url: user.avatar_url || null
       }
     });
   } catch (error: any) {
@@ -5902,7 +5903,8 @@ app.get('/api/point/me', authMiddleware, async (req: any, res) => {
         id: point.executive_user_id,
         name: point.executive_name || 'Ejecutivo de Cuenta',
         email: point.executive_email || null,
-        phone: point.executive_phone || null
+        phone: point.executive_phone || null,
+        avatar_url: point.executive_avatar_url || null
       } : null,
       unreadChatCount
     }});
@@ -6065,6 +6067,7 @@ app.get('/api/admin/points', authMiddleware, requireAdminOrPermission('points.vi
       executiveName: point.executive_name || null,
       executiveEmail: point.executive_email || null,
       executivePhone: point.executive_phone || null,
+      executiveAvatarUrl: point.executive_avatar_url || null,
       businessName: point.business_name,
       contactName: point.contact_name,
       email: point.email,
@@ -10500,6 +10503,33 @@ app.delete('/api/admin/roles/:id', authMiddleware, requireAdminOrPermission('rol
   }
 });
 
+// Helper para procesar avatares (imágenes base64 o URLs directas)
+function processAvatarInput(input: any, identifier: string): string | null {
+  if (!input || typeof input !== 'string') return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('data:image/')) {
+    try {
+      const match = trimmed.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+      if (!match) return null;
+      const rawExt = match[1].toLowerCase();
+      const ext = rawExt === 'jpeg' ? 'jpg' : rawExt.replace('+xml', '');
+      const buffer = Buffer.from(match[2], 'base64');
+      if (buffer.length > 6 * 1024 * 1024) return null; // Límite de 6MB
+      const dir = path.join(process.cwd(), 'public', 'uploads', 'avatars');
+      fs.mkdirSync(dir, { recursive: true });
+      const safeId = String(identifier).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `avatar_${safeId}_${Date.now()}.${ext}`;
+      fs.writeFileSync(path.join(dir, filename), buffer);
+      return `/uploads/avatars/${filename}`;
+    } catch (e) {
+      console.error('[Avatar Save Error]:', e);
+      return null;
+    }
+  }
+  return trimmed;
+}
+
 // ========== TEAM MEMBERS ENDPOINTS ==========
 app.get('/api/admin/team', authMiddleware, requireAdminOrPermission('team.view'), async (_req: any, res) => {
   try {
@@ -10514,7 +10544,7 @@ app.get('/api/admin/team', authMiddleware, requireAdminOrPermission('team.view')
 
 app.post('/api/admin/team', authMiddleware, requireAdminOrPermission('team.manage'), async (req: any, res) => {
   try {
-    const { email, name, password, role, role_id, phone, custom_permissions, status } = req.body;
+    const { email, name, password, role, role_id, phone, custom_permissions, status, avatar_url } = req.body;
     if (!email || !name) {
       return res.status(400).json({ error: 'Nombre y correo electrónico son requeridos.' });
     }
@@ -10522,6 +10552,7 @@ app.post('/api/admin/team', authMiddleware, requireAdminOrPermission('team.manag
     if (existing) {
       return res.status(400).json({ error: 'Ya existe un usuario con este correo electrónico.' });
     }
+    const finalAvatar = processAvatarInput(avatar_url, String(email).toLowerCase().trim());
     const member = await TeamRepo.createMember({
       email: String(email).toLowerCase().trim(),
       name: String(name).trim(),
@@ -10529,6 +10560,7 @@ app.post('/api/admin/team', authMiddleware, requireAdminOrPermission('team.manag
       role: role || 'support',
       role_id: role_id || null,
       phone: phone || '',
+      avatar_url: finalAvatar,
       custom_permissions,
       status: status || 'active'
     });
@@ -10541,10 +10573,15 @@ app.post('/api/admin/team', authMiddleware, requireAdminOrPermission('team.manag
 
 app.put('/api/admin/team/:id', authMiddleware, requireAdminOrPermission('team.manage'), async (req: any, res) => {
   try {
-    const { name, phone, role, role_id, status, password, custom_permissions } = req.body;
+    const { name, phone, role, role_id, status, password, custom_permissions, avatar_url } = req.body;
+    let avatarUpdate: string | null | undefined = undefined;
+    if (avatar_url !== undefined) {
+      avatarUpdate = processAvatarInput(avatar_url, req.params.id);
+    }
     const member = await TeamRepo.updateMember(req.params.id, {
       name,
       phone,
+      avatar_url: avatarUpdate,
       role,
       role_id,
       status,

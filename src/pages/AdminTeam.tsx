@@ -21,7 +21,9 @@ import {
   X,
   ChevronRight,
   Filter,
-  Link2
+  Link2,
+  Camera,
+  Image as ImageIcon
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -30,6 +32,7 @@ interface TeamMember {
   name: string;
   email: string;
   phone?: string;
+  avatar_url?: string | null;
   role: string;
   role_id?: string;
   role_name?: string;
@@ -112,10 +115,12 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
   // Modales
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [memberForm, setMemberForm] = useState({
     name: '',
     email: '',
     phone: '',
+    avatar_url: '',
     role: 'support',
     role_id: '',
     status: 'active',
@@ -137,7 +142,8 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
         (api as any).getAdminTeam(),
         (api as any).getAdminRoles()
       ]);
-      setMembers(teamRes.members || []);
+      const validMembers = (teamRes.members || []).filter((m: any) => m.role !== 'customer' && m.role !== 'point');
+      setMembers(validMembers);
       setRoles(rolesRes.roles || []);
     } catch (err: any) {
       setNotice({ text: err.message || 'Error al cargar datos del equipo.', type: 'error' });
@@ -215,6 +221,7 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
       name: m.name,
       email: m.email,
       phone: m.phone || '',
+      avatar_url: m.avatar_url || '',
       role: m.role,
       role_id: m.role_id || '',
       status: m.status || 'active',
@@ -293,6 +300,7 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
   };
 
   const filteredMembers = members.filter(m => {
+    if (m.role === 'customer' || m.role === 'point') return false;
     const matchesSearch = 
       m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
       m.email.toLowerCase().includes(searchTerm.toLowerCase());
@@ -414,6 +422,7 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                   name: '',
                   email: '',
                   phone: '',
+                  avatar_url: '',
                   role: roles[1]?.slug || 'support',
                   role_id: roles[1]?.id || '',
                   status: 'active',
@@ -447,9 +456,17 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-bold flex items-center justify-center text-sm shadow-xs shrink-0">
-                        {m.name.charAt(0).toUpperCase()}
-                      </div>
+                      {m.avatar_url ? (
+                        <img
+                          src={m.avatar_url}
+                          alt={m.name}
+                          className="w-10 h-10 rounded-xl object-cover ring-1 ring-slate-200 dark:ring-slate-700 shadow-xs shrink-0"
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-bold flex items-center justify-center text-sm shadow-xs shrink-0">
+                          {m.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
                       <div className="min-w-0">
                         <h3 className="font-bold text-slate-900 dark:text-white text-sm truncate leading-snug">
                           {m.name}
@@ -569,9 +586,17 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                       <tr key={m.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-colors">
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-bold flex items-center justify-center text-sm shadow-xs">
-                              {m.name.charAt(0).toUpperCase()}
-                            </div>
+                            {m.avatar_url ? (
+                              <img
+                                src={m.avatar_url}
+                                alt={m.name}
+                                className="w-9 h-9 rounded-xl object-cover ring-1 ring-slate-200 dark:ring-slate-700 shadow-xs shrink-0"
+                              />
+                            ) : (
+                              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-bold flex items-center justify-center text-sm shadow-xs shrink-0">
+                                {m.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
                             <div>
                               <p className="font-bold text-slate-900 dark:text-white leading-snug">{m.name}</p>
                               <p className="text-xs text-slate-500 dark:text-slate-400">{m.email}</p>
@@ -778,6 +803,95 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
             </div>
 
             <form onSubmit={handleSaveMember} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+              {/* Foto de Perfil / Avatar del Integrante */}
+              <div className="p-3 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Foto de Perfil / Avatar
+                  </label>
+                  <span className="text-[10px] text-blue-600 dark:text-cyan-400 font-bold">Visible para Points</span>
+                </div>
+
+                <div className="flex items-center gap-3 sm:gap-4">
+                  {memberForm.avatar_url ? (
+                    <div className="relative group shrink-0">
+                      <img
+                        src={memberForm.avatar_url}
+                        alt="Preview"
+                        className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover ring-2 ring-blue-500/30 shadow-md"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setMemberForm(prev => ({ ...prev, avatar_url: '' }))}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center text-xs shadow-md hover:bg-red-600"
+                        title="Quitar foto"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-bold flex items-center justify-center text-xl shadow-xs shrink-0">
+                      {(memberForm.name || 'U').charAt(0).toUpperCase()}
+                    </div>
+                  )}
+
+                  <div className="flex-1 space-y-1.5 min-w-0">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      accept="image/png, image/jpeg, image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 4 * 1024 * 1024) {
+                          showNotification('La imagen no debe superar los 4MB.', 'error');
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          setMemberForm(prev => ({ ...prev, avatar_url: String(reader.result || '') }));
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>{memberForm.avatar_url ? 'Cambiar Foto' : 'Subir Foto'}</span>
+                      </button>
+
+                      {memberForm.avatar_url && (
+                        <button
+                          type="button"
+                          onClick={() => setMemberForm(prev => ({ ...prev, avatar_url: '' }))}
+                          className="px-2.5 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-700 hover:bg-red-50 dark:hover:bg-red-950/40 text-slate-700 dark:text-slate-300 hover:text-red-500 text-xs font-bold transition-colors"
+                        >
+                          Quitar
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-tight">
+                      Sube la foto del colaborador. Se muestra a los Points como su Ejecutivo asignado.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                  <input
+                    type="url"
+                    placeholder="O ingresa enlace directo (https://...)"
+                    value={memberForm.avatar_url.startsWith('data:') ? '' : memberForm.avatar_url}
+                    onChange={(e) => setMemberForm(prev => ({ ...prev, avatar_url: e.target.value }))}
+                    className="w-full px-3 py-1.5 rounded-lg text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-1 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              </div>
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                   Nombre Completo

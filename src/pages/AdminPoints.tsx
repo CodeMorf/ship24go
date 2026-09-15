@@ -240,9 +240,22 @@ export default function AdminPoints() {
                         ))}
                       </select>
                       {point.executiveName ? (
-                        <p className="text-[11px] text-blue-600 dark:text-cyan-400 font-bold mt-1">
-                          {point.executiveName}
-                        </p>
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          {point.executiveAvatarUrl ? (
+                            <img
+                              src={point.executiveAvatarUrl}
+                              alt={point.executiveName}
+                              className="w-5 h-5 rounded-full object-cover ring-1 ring-blue-500/30 shrink-0"
+                            />
+                          ) : (
+                            <div className="w-5 h-5 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                              {point.executiveName.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <span className="text-[11px] text-blue-600 dark:text-cyan-400 font-bold truncate">
+                            {point.executiveName}
+                          </span>
+                        </div>
                       ) : (
                         <p className="text-[11px] text-slate-400 mt-1">Sin manager asignado</p>
                       )}

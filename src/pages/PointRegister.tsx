@@ -518,9 +518,17 @@ export default function PointRegister() {
 
             {executive && (
               <div className="rounded-2xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/80 dark:bg-blue-950/40 p-4 flex items-center gap-3.5 shadow-sm">
-                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white font-bold flex items-center justify-center text-sm shrink-0 shadow-xs">
-                  {executive.name.charAt(0).toUpperCase()}
-                </div>
+                {executive.avatar_url ? (
+                  <img
+                    src={executive.avatar_url}
+                    alt={executive.name}
+                    className="w-10 h-10 rounded-xl object-cover ring-2 ring-blue-500/20 shrink-0 shadow-xs"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-blue-600 text-white font-bold flex items-center justify-center text-sm shrink-0 shadow-xs">
+                    {executive.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-cyan-400">Ejecutivo de Cuenta Asignado</span>
