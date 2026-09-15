@@ -112,13 +112,15 @@ export function BrandMark({
   iconClassName = '', 
   textClassName = '', 
   dark = false,
-  showTagline = false 
+  showTagline = false,
+  showText = true,
 }: { 
   className?: string; 
   iconClassName?: string; 
   textClassName?: string; 
   dark?: boolean;
   showTagline?: boolean;
+  showText?: boolean;
 }) {
   const { brand } = useBrand();
   const name = brand.shortName || brand.siteName || DEFAULT_BRAND.shortName;
@@ -134,16 +136,18 @@ export function BrandMark({
           onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.png'; }} 
         />
       </div>
-      <div className="flex flex-col text-left">
-        <span className={`${textClassName || (dark ? 'text-white' : 'text-gray-900 dark:text-white')} font-black tracking-tight font-outfit text-2xl leading-none`}>
-          SHIP<span className="text-cyan-500 dark:text-cyan-400">24</span>GO
-        </span>
-        {showTagline && (
-          <span className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase mt-0.5">
-            {brand.tagline || 'Inteligencia en Envíos'}
+      {showText !== false && (
+        <div className="flex flex-col text-left">
+          <span className={`${textClassName || (dark ? 'text-white' : 'text-gray-900 dark:text-white')} font-black tracking-tight font-outfit text-2xl leading-none`}>
+            SHIP<span className="text-cyan-500 dark:text-cyan-400">24</span>GO
           </span>
-        )}
-      </div>
+          {showTagline && (
+            <span className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase mt-0.5">
+              {brand.tagline || 'Inteligencia en Envíos'}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
