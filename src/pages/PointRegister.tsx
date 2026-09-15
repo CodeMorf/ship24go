@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Building2, CheckCircle2, ChevronLeft, MapPin, Moon, ShieldCheck, Store, Sun, User, XCircle } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, setAuthToken } from '../lib/api';
 import { AddressAutocomplete } from '../components/AddressAutocomplete';
 import { CountrySelect } from '../components/CountrySelect';
@@ -400,6 +400,10 @@ const initialForm: PointForm = {
 
 export default function PointRegister() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const refCode = (searchParams.get('ref') || searchParams.get('exec') || '').trim();
+  const [executive, setExecutive] = useState<any>(null);
+
   const { isDark, toggleTheme } = useTheme();
   const { language } = useI18n();
   const langKey = String(language || 'en').slice(0, 2).toLowerCase();
@@ -410,6 +414,18 @@ export default function PointRegister() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const locationSelected = Boolean(form.googlePlaceId && Number.isFinite(form.latitude) && Number.isFinite(form.longitude));
+
+  useEffect(() => {
+    if (refCode) {
+      api.getPublicPointExecutive(refCode)
+        .then((res: any) => {
+          if (res?.success && res?.executive) {
+            setExecutive(res.executive);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [refCode]);
 
   const update = (field: keyof PointForm, value: any) => setForm((current) => ({ ...current, [field]: value }));
   const updateCountry = (country: string) => setForm((current) => ({
@@ -424,9 +440,13 @@ export default function PointRegister() {
     setError('');
     setNotice('');
     try {
-      const response = await api.registerPoint(form);
+      const payload: any = { ...form };
+      if (refCode) {
+        payload.ref = refCode;
+      }
+      const response = await api.registerPoint(payload);
       setAuthToken(response.token);
-      setNotice('Registro recibido. Tu Point quedó pendiente de revisión.');
+      setNotice('Registro recibido. Tu Point quedó registrado con éxito.');
       window.setTimeout(() => navigate('/point'), 500);
     } catch (err: any) {
       setError(err.message || 'No se pudo completar el registro.');
@@ -495,6 +515,22 @@ export default function PointRegister() {
               </div>
               <div className="hidden sm:flex w-11 h-11 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-cyan-400 items-center justify-center"><Building2 className="w-5 h-5" /></div>
             </div>
+
+            {executive && (
+              <div className="rounded-2xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/80 dark:bg-blue-950/40 p-4 flex items-center gap-3.5 shadow-sm">
+                <div className="w-10 h-10 rounded-xl bg-blue-600 text-white font-bold flex items-center justify-center text-sm shrink-0 shadow-xs">
+                  {executive.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-cyan-400">Ejecutivo de Cuenta Asignado</span>
+                    <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">Asesoría directa</span>
+                  </div>
+                  <p className="font-bold text-slate-900 dark:text-white text-sm mt-0.5">{executive.name}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Te acompañará en la verificación de tu local, tarifas y dudas operativas.</p>
+                </div>
+              </div>
+            )}
 
             {error && <div className="rounded-2xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-4 text-sm font-semibold text-red-700 dark:text-red-300 flex gap-3"><XCircle className="w-5 h-5 shrink-0" />{error}</div>}
             {notice && <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40 p-4 text-sm font-semibold text-emerald-700 dark:text-emerald-300 flex gap-3"><CheckCircle2 className="w-5 h-5 shrink-0" />{notice}</div>}

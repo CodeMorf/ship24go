@@ -5717,6 +5717,23 @@ app.post('/api/point/register', async (req, res) => {
 
     const userId = generateId('usr_');
     const pointId = generateId('pnt_');
+
+    // Detección y vinculación de Ejecutivo de Cuenta por referencia (?ref= o executiveId)
+    let executiveUserId: string | null = null;
+    let executiveUser: any = null;
+    const refParam = req.body?.ref || req.body?.executiveId;
+    if (refParam && typeof refParam === 'string' && refParam.trim().length > 0) {
+      try {
+        const found = await UserRepo.getById(refParam.trim());
+        if (found && found.status === 'active') {
+          executiveUserId = found.id;
+          executiveUser = found;
+        }
+      } catch (e) {
+        console.warn('[Point Register] No se pudo verificar ejecutivo ref:', e);
+      }
+    }
+
     await conn.query(
       `INSERT INTO users (id, email, password_hash, name, phone, country, currency, role, business_type, balance, status)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'customer', 'Point afiliado', 0.00, 'active')`,
@@ -5724,17 +5741,32 @@ app.post('/api/point/register', async (req, res) => {
     );
     await conn.query(
       `INSERT INTO points (
-        id, user_id, business_name, contact_name, email, phone, country, currency,
+        id, user_id, executive_user_id, business_name, contact_name, email, phone, country, currency,
         address_line1, civic_number, city, province, postal_code, formatted_address,
         google_place_id, latitude, longitude, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
-        pointId, userId, point.businessName, point.contactName, point.email, point.phone || null,
+        pointId, userId, executiveUserId, point.businessName, point.contactName, point.email, point.phone || null,
         point.country, point.currency, point.addressLine1, point.civicNumber || null, point.city,
         point.province || null, point.postalCode || null, point.formattedAddress, point.googlePlaceId,
         point.latitude, point.longitude
       ]
     );
+
+    if (executiveUserId && executiveUser) {
+      await conn.query(
+        `INSERT INTO point_chat_messages (id, point_id, sender_user_id, sender_role, sender_name, message, is_read)
+         VALUES (?, ?, ?, 'executive', ?, ?, 0)`,
+        [
+          generateId('pcm_'),
+          pointId,
+          executiveUserId,
+          executiveUser.name || 'Ejecutivo de Cuenta',
+          `¡Hola ${point.contactName}! Soy ${executiveUser.name}, tu Ejecutivo de Cuenta asignado en Ship24Go. Estaré acompañándote en la verificación de tu local, activación operativa y resolución de dudas.`
+        ]
+      ).catch((err: any) => console.warn('[Point Welcome Message Warning]:', err?.message));
+    }
+
     await conn.commit();
 
     const token = generateToken({ userId, role: 'customer' });
@@ -5813,11 +5845,37 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// Consulta pública de información del Ejecutivo de Cuenta por referencia (?ref=)
+app.get('/api/public/point-executive/:id', async (req, res) => {
+  try {
+    const user = await UserRepo.getById(req.params.id);
+    if (!user || (user.status && user.status !== 'active')) {
+      return res.status(404).json({ error: 'Ejecutivo no disponible o no encontrado.' });
+    }
+    res.json({
+      success: true,
+      executive: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone || null,
+        role: user.role
+      }
+    });
+  } catch (error: any) {
+    console.error('[Public Executive Info Error]:', error);
+    res.status(500).json({ error: 'Error al consultar datos del ejecutivo.' });
+  }
+});
+
 // ========== POINT AFILIADO: PERFIL, PRODUCTOS, EMISIÓN Y TRACKING ==========
 app.get('/api/point/me', authMiddleware, async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'Este usuario no tiene un Point afiliado.' });
+    
+    const unreadChatCount = await PointRepo.getUnreadCountForPoint(point.id).catch(() => 0);
+
     res.json({ point: {
       id: point.id,
       userId: point.user_id,
@@ -5839,7 +5897,14 @@ app.get('/api/point/me', authMiddleware, async (req: any, res) => {
       status: point.status,
       reviewNote: point.review_note,
       reviewedAt: point.reviewed_at,
-      createdAt: point.created_at
+      createdAt: point.created_at,
+      executive: point.executive_user_id ? {
+        id: point.executive_user_id,
+        name: point.executive_name || 'Ejecutivo de Cuenta',
+        email: point.executive_email || null,
+        phone: point.executive_phone || null
+      } : null,
+      unreadChatCount
     }});
   } catch (error) {
     console.error('[Point Me Error]:', error);
@@ -5996,6 +6061,10 @@ app.get('/api/admin/points', authMiddleware, requireAdminOrPermission('points.vi
     res.json({ points: points.map((point: any) => ({
       id: point.id,
       userId: point.user_id,
+      executiveUserId: point.executive_user_id || null,
+      executiveName: point.executive_name || null,
+      executiveEmail: point.executive_email || null,
+      executivePhone: point.executive_phone || null,
       businessName: point.business_name,
       contactName: point.contact_name,
       email: point.email,
@@ -6054,6 +6123,148 @@ app.post('/api/admin/points/:id/status', authMiddleware, requireAdminOrPermissio
   } catch (error) {
     console.error('[Admin Point Status Error]:', error);
     res.status(500).json({ error: 'No se pudo actualizar el estado del Point.' });
+  }
+});
+
+// Asignar o cambiar Account Executive desde Super Admin
+app.post('/api/admin/points/:id/executive', authMiddleware, requireAdminOrPermission('points.manage'), async (req: any, res) => {
+  try {
+    const point = await PointRepo.getById(req.params.id);
+    if (!point) return res.status(404).json({ error: 'Point no encontrado.' });
+    const executiveUserId = req.body?.executiveUserId ? String(req.body.executiveUserId).trim() : null;
+
+    let execUser: any = null;
+    if (executiveUserId) {
+      execUser = await UserRepo.getById(executiveUserId);
+      if (!execUser) return res.status(404).json({ error: 'Ejecutivo de cuenta no encontrado.' });
+    }
+
+    await PointRepo.assignExecutive(point.id, executiveUserId);
+
+    if (execUser) {
+      await PointRepo.createChatMessage({
+        id: generateId('pcm_'),
+        point_id: point.id,
+        sender_user_id: req.user.id,
+        sender_role: 'super_admin',
+        sender_name: 'Sistema Ship24Go',
+        message: `Se ha asignado a ${execUser.name} como tu nuevo Ejecutivo de Cuenta.`
+      }).catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      executive: execUser ? { id: execUser.id, name: execUser.name, email: execUser.email } : null
+    });
+  } catch (error) {
+    console.error('[Admin Assign Executive Error]:', error);
+    res.status(500).json({ error: 'No se pudo asignar el ejecutivo de cuenta.' });
+  }
+});
+
+// ========== CHAT DE ASISTENCIA: POINT AFILIADO ==========
+app.get('/api/point/chat/messages', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'Este usuario no tiene un Point afiliado.' });
+    await PointRepo.markChatMessagesAsRead(point.id, 'point').catch(() => {});
+    const messages = await PointRepo.getChatMessages(point.id);
+    res.json({ success: true, messages });
+  } catch (error) {
+    console.error('[Point Chat Messages Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar los mensajes del chat.' });
+  }
+});
+
+app.post('/api/point/chat/messages', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'Este usuario no tiene un Point afiliado.' });
+    const text = String(req.body?.message || '').trim();
+    if (!text) return res.status(400).json({ error: 'El mensaje no puede estar vacío.' });
+    if (text.length > 2000) return res.status(400).json({ error: 'El mensaje es demasiado largo (máx 2000 caracteres).' });
+
+    const messageId = generateId('pcm_');
+    const senderName = point.business_name || point.contact_name || req.user.name || 'Point Afiliado';
+    await PointRepo.createChatMessage({
+      id: messageId,
+      point_id: point.id,
+      sender_user_id: req.user.id,
+      sender_role: 'point',
+      sender_name: senderName,
+      message: text
+    });
+
+    res.status(201).json({
+      success: true,
+      message: {
+        id: messageId,
+        point_id: point.id,
+        sender_user_id: req.user.id,
+        sender_role: 'point',
+        sender_name: senderName,
+        message: text,
+        is_read: 0,
+        created_at: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('[Point Chat Send Error]:', error);
+    res.status(500).json({ error: 'No se pudo enviar el mensaje.' });
+  }
+});
+
+// ========== CHAT DE ASISTENCIA: SUPER ADMIN / EJECUTIVO ==========
+app.get('/api/admin/points/:id/chat/messages', authMiddleware, requireAdminOrPermission('points.view'), async (req: any, res) => {
+  try {
+    const point = await PointRepo.getById(req.params.id);
+    if (!point) return res.status(404).json({ error: 'Point no encontrado.' });
+    await PointRepo.markChatMessagesAsRead(point.id, 'staff').catch(() => {});
+    const messages = await PointRepo.getChatMessages(point.id);
+    res.json({ success: true, messages });
+  } catch (error) {
+    console.error('[Admin Point Chat Messages Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar los mensajes del chat.' });
+  }
+});
+
+app.post('/api/admin/points/:id/chat/messages', authMiddleware, requireAdminOrPermission('points.manage'), async (req: any, res) => {
+  try {
+    const point = await PointRepo.getById(req.params.id);
+    if (!point) return res.status(404).json({ error: 'Point no encontrado.' });
+    const text = String(req.body?.message || '').trim();
+    if (!text) return res.status(400).json({ error: 'El mensaje no puede estar vacío.' });
+    if (text.length > 2000) return res.status(400).json({ error: 'El mensaje es demasiado largo (máx 2000 caracteres).' });
+
+    const messageId = generateId('pcm_');
+    const senderRole = req.user.role === 'super_admin' ? 'super_admin' : 'executive';
+    const senderName = req.user.name || 'Ejecutivo Ship24Go';
+
+    await PointRepo.createChatMessage({
+      id: messageId,
+      point_id: point.id,
+      sender_user_id: req.user.id,
+      sender_role: senderRole,
+      sender_name: senderName,
+      message: text
+    });
+
+    res.status(201).json({
+      success: true,
+      message: {
+        id: messageId,
+        point_id: point.id,
+        sender_user_id: req.user.id,
+        sender_role: senderRole,
+        sender_name: senderName,
+        message: text,
+        is_read: 0,
+        created_at: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('[Admin Point Chat Send Error]:', error);
+    res.status(500).json({ error: 'No se pudo enviar el mensaje.' });
   }
 });
 

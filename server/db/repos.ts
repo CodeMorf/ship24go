@@ -1086,15 +1086,28 @@ export const TeamRepo = {
 // 15. Points afiliados: ubicación verificada, aprobación y operaciones trazables
 export const PointRepo = {
   async getByUserId(userId: string): Promise<any | null> {
-    const [rows]: any = await pool.query('SELECT * FROM points WHERE user_id = ? LIMIT 1', [userId]);
+    const [rows]: any = await pool.query(
+      `SELECT p.*,
+              exec.name AS executive_name,
+              exec.email AS executive_email,
+              exec.phone AS executive_phone,
+              exec.status AS executive_status
+       FROM points p
+       LEFT JOIN users exec ON exec.id = p.executive_user_id
+       WHERE p.user_id = ? LIMIT 1`,
+      [userId]
+    );
     return rows[0] || null;
   },
 
   async getById(id: string): Promise<any | null> {
     const [rows]: any = await pool.query(
-      `SELECT p.*, u.name AS user_name, u.email AS user_email, u.phone AS user_phone, u.status AS user_status
+      `SELECT p.*,
+              u.name AS user_name, u.email AS user_email, u.phone AS user_phone, u.status AS user_status,
+              exec.name AS executive_name, exec.email AS executive_email, exec.phone AS executive_phone, exec.status AS executive_status
        FROM points p
        INNER JOIN users u ON u.id = p.user_id
+       LEFT JOIN users exec ON exec.id = p.executive_user_id
        WHERE p.id = ? LIMIT 1`,
       [id]
     );
@@ -1103,9 +1116,12 @@ export const PointRepo = {
 
   async getAll(): Promise<any[]> {
     const [rows]: any = await pool.query(
-      `SELECT p.*, u.name AS user_name, u.email AS user_email, u.phone AS user_phone, u.status AS user_status
+      `SELECT p.*,
+              u.name AS user_name, u.email AS user_email, u.phone AS user_phone, u.status AS user_status,
+              exec.name AS executive_name, exec.email AS executive_email, exec.phone AS executive_phone
        FROM points p
        INNER JOIN users u ON u.id = p.user_id
+       LEFT JOIN users exec ON exec.id = p.executive_user_id
        ORDER BY FIELD(p.status, 'pending', 'approved', 'suspended', 'rejected'), p.created_at ASC`
     );
     return rows;
@@ -1147,13 +1163,14 @@ export const PointRepo = {
   async create(point: any): Promise<void> {
     await pool.query(
       `INSERT INTO points (
-        id, user_id, business_name, contact_name, email, phone, country, currency,
+        id, user_id, executive_user_id, business_name, contact_name, email, phone, country, currency,
         address_line1, civic_number, city, province, postal_code, formatted_address,
         google_place_id, latitude, longitude, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         point.id,
         point.user_id,
+        point.executive_user_id || null,
         point.business_name,
         point.contact_name,
         point.email,
@@ -1240,5 +1257,68 @@ export const PointRepo = {
       [pointId]
     );
     return rows;
+  },
+
+  async assignExecutive(pointId: string, executiveUserId: string | null): Promise<void> {
+    await pool.query(
+      `UPDATE points SET executive_user_id = ?, updated_at = NOW() WHERE id = ?`,
+      [executiveUserId || null, pointId]
+    );
+  },
+
+  async getChatMessages(pointId: string): Promise<any[]> {
+    const [rows]: any = await pool.query(
+      `SELECT id, point_id, sender_user_id, sender_role, sender_name, message, is_read, created_at
+       FROM point_chat_messages
+       WHERE point_id = ?
+       ORDER BY created_at ASC`,
+      [pointId]
+    );
+    return rows;
+  },
+
+  async createChatMessage(data: {
+    id: string;
+    point_id: string;
+    sender_user_id: string;
+    sender_role: string;
+    sender_name: string;
+    message: string;
+  }): Promise<void> {
+    await pool.query(
+      `INSERT INTO point_chat_messages (id, point_id, sender_user_id, sender_role, sender_name, message, is_read)
+       VALUES (?, ?, ?, ?, ?, ?, 0)`,
+      [
+        data.id,
+        data.point_id,
+        data.sender_user_id,
+        data.sender_role,
+        data.sender_name,
+        data.message
+      ]
+    );
+  },
+
+  async markChatMessagesAsRead(pointId: string, forRole: 'point' | 'staff'): Promise<void> {
+    if (forRole === 'point') {
+      await pool.query(
+        `UPDATE point_chat_messages SET is_read = 1 WHERE point_id = ? AND sender_role IN ('executive', 'super_admin') AND is_read = 0`,
+        [pointId]
+      );
+    } else {
+      await pool.query(
+        `UPDATE point_chat_messages SET is_read = 1 WHERE point_id = ? AND sender_role = 'point' AND is_read = 0`,
+        [pointId]
+      );
+    }
+  },
+
+  async getUnreadCountForPoint(pointId: string): Promise<number> {
+    const [rows]: any = await pool.query(
+      `SELECT COUNT(*) AS total FROM point_chat_messages WHERE point_id = ? AND sender_role IN ('executive', 'super_admin') AND is_read = 0`,
+      [pointId]
+    );
+    return Number(rows[0]?.total || 0);
   }
 };
+

@@ -202,4 +202,10 @@ export const api = {
     });
     return fetchAPI(`/public/points${query.toString() ? `?${query.toString()}` : ''}`);
   },
+  getPublicPointExecutive: (id: string) => fetchAPI(`/public/point-executive/${encodeURIComponent(id)}`),
+  assignAdminPointExecutive: (pointId: string, executiveUserId: string | null) => fetchAPI(`/admin/points/${pointId}/executive`, { method: 'POST', body: JSON.stringify({ executiveUserId }) }),
+  getAdminPointChat: (pointId: string) => fetchAPI(`/admin/points/${pointId}/chat/messages`),
+  sendAdminPointChat: (pointId: string, message: string) => fetchAPI(`/admin/points/${pointId}/chat/messages`, { method: 'POST', body: JSON.stringify({ message }) }),
+  getPointChat: () => fetchAPI('/point/chat/messages'),
+  sendPointChat: (message: string) => fetchAPI('/point/chat/messages', { method: 'POST', body: JSON.stringify({ message }) }),
 };

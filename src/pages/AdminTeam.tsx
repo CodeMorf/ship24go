@@ -20,7 +20,8 @@ import {
   Check,
   X,
   ChevronRight,
-  Filter
+  Filter,
+  Link2
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -152,6 +153,22 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
   const showNotification = (text: string, type: 'success' | 'error' = 'success') => {
     setNotice({ text, type });
     setTimeout(() => setNotice(null), 4000);
+  };
+
+  const copyPointInviteLink = (member: TeamMember) => {
+    const origin = window.location.origin;
+    const url = `${origin}/point/register?ref=${encodeURIComponent(member.id)}`;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url);
+    } else {
+      const input = document.createElement('input');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      document.body.removeChild(input);
+    }
+    showNotification(`¡Enlace copiado! Los Points registrados con este link quedarán asignados a ${member.name}.`, 'success');
   };
 
   const handleSaveMember = async (e: React.FormEvent) => {
@@ -487,7 +504,15 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => copyPointInviteLink(m)}
+                        className="px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 text-blue-600 dark:text-blue-300 text-xs font-bold transition-colors flex items-center gap-1.5 h-8"
+                        title="Copiar link de registro para Points"
+                      >
+                        <Link2 className="w-3.5 h-3.5" />
+                        Link Point
+                      </button>
                       <button
                         onClick={() => openEditMember(m)}
                         className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700/80 hover:bg-slate-200 text-slate-700 dark:text-slate-200 text-xs font-bold transition-colors flex items-center gap-1.5 h-8"
@@ -593,7 +618,15 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                           )}
                         </td>
                         <td className="py-3.5 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => copyPointInviteLink(m)}
+                              className="px-2.5 py-1 rounded-lg text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors flex items-center gap-1 text-xs font-bold"
+                              title={`Copiar link de registro para Points asignados a ${m.name}`}
+                            >
+                              <Link2 className="w-3.5 h-3.5" />
+                              <span>Link Point</span>
+                            </button>
                             <button
                               onClick={() => openEditMember(m)}
                               className="p-1.5 rounded-lg text-slate-500 hover:text-blue-500 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
