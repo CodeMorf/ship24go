@@ -115,6 +115,19 @@ app.get('/api/public/runtime-config', (_req, res) => {
 });
 
 
+app.get('/api/public/points', async (req, res) => {
+  try {
+    const country = String(req.query.country || '').trim().toUpperCase();
+    const city = String(req.query.city || '').trim();
+    const q = String(req.query.q || '').trim();
+    const points = await PointRepo.getPublicApproved({ country, city, q });
+    res.json({ success: true, points });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: 'No se pudieron consultar los points', details: error.message });
+  }
+});
+
+
 app.get('/api/public/locale', async (req, res) => {
   try {
     const headerCountry = String(

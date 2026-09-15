@@ -57,6 +57,48 @@ export async function initDb() {
     await pool.query(fs.readFileSync(pointSchemaPath, 'utf8'));
   }
 
+  // Sembrar Point comercial verificado en Boston, MA (solicitado por usuario)
+  try {
+    const [existingBoston]: any = await pool.query(
+      `SELECT id FROM points WHERE id = 'pnt_boston_cambridge_01' OR google_place_id = 'ChIJGzMvKkV644kR5fC9L_wUo3M' LIMIT 1`
+    );
+    if (!existingBoston || existingBoston.length === 0) {
+      const bostonUserId = 'usr_point_boston_01';
+      const [userExists]: any = await pool.query(
+        `SELECT id FROM users WHERE id = ? OR email = ? LIMIT 1`,
+        [bostonUserId, 'boston.point@ship24go.com']
+      );
+      if (!userExists || userExists.length === 0) {
+        const hashedPassword = await hashPassword('BostonPoint2026!');
+        await pool.query(
+          `INSERT INTO users (id, name, email, password_hash, role, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'point', 'active', NOW(), NOW())`,
+          [bostonUserId, 'David Miller (Boston Express)', 'boston.point@ship24go.com', hashedPassword]
+        );
+      }
+      const actualUserId = (userExists && userExists[0]?.id) || bostonUserId;
+      await pool.query(
+        `INSERT INTO points (
+          id, user_id, business_name, contact_name, email, phone, country, currency,
+          address_line1, civic_number, city, province, postal_code, formatted_address,
+          google_place_id, latitude, longitude, status, review_note, created_at, updated_at
+        ) VALUES (
+          'pnt_boston_cambridge_01', ?, 'Boston Express Hub & Ship Point', 'David Miller',
+          'boston.point@ship24go.com', '+1 617-555-0198', 'US', 'USD',
+          '100 Cambridge St', '100', 'Boston', 'MA', '02114',
+          '100 Cambridge St, Boston, MA 02114, USA',
+          'ChIJGzMvKkV644kR5fC9L_wUo3M', 42.3611450, -71.0610330, 'approved',
+          'Punto oficial verificado en Boston, MA - Recepción y emisión de paquetería',
+          NOW(), NOW()
+        ) ON DUPLICATE KEY UPDATE status = 'approved', updated_at = NOW()`,
+        [actualUserId]
+      );
+      console.log('[MySQL] Boston Point sembrado y activado con éxito.');
+    }
+  } catch (err: any) {
+    console.warn('[MySQL] Advertencia sembrando Boston Point:', err?.message || err);
+  }
+
   await pool.query(`CREATE TABLE IF NOT EXISTS admin_settings (
     id INT PRIMARY KEY,
     settings_json JSON NULL,
@@ -1060,6 +1102,39 @@ export const PointRepo = {
        ORDER BY FIELD(p.status, 'pending', 'approved', 'suspended', 'rejected'), p.created_at ASC`
     );
     return rows;
+  },
+
+  async getPublicApproved(filters?: { country?: string; city?: string; q?: string }): Promise<any[]> {
+    let sql = `
+      SELECT id, business_name, contact_name, phone, email, country, currency,
+             address_line1, civic_number, city, province, postal_code, formatted_address,
+             google_place_id, latitude, longitude, created_at
+      FROM points
+      WHERE status = 'approved'
+    `;
+    const params: any[] = [];
+    if (filters?.country) {
+      sql += ` AND country = ?`;
+      params.push(filters.country.toUpperCase());
+    }
+    if (filters?.city) {
+      sql += ` AND LOWER(city) LIKE ?`;
+      params.push(`%${filters.city.toLowerCase()}%`);
+    }
+    if (filters?.q) {
+      sql += ` AND (LOWER(business_name) LIKE ? OR LOWER(formatted_address) LIKE ? OR LOWER(city) LIKE ? OR postal_code LIKE ?)`;
+      const term = `%${filters.q.toLowerCase()}%`;
+      params.push(term, term, term, term);
+    }
+    sql += ` ORDER BY created_at DESC`;
+    const [rows]: any = await pool.query(sql, params);
+    return Array.isArray(rows)
+      ? rows.map((r: any) => ({
+          ...r,
+          latitude: Number(r.latitude),
+          longitude: Number(r.longitude)
+        }))
+      : [];
   },
 
   async create(point: any): Promise<void> {

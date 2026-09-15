@@ -195,4 +195,11 @@ export const api = {
   adminGetCacheStats: () => fetchAPI('/admin/cache/stats'),
   adminFlushCache: () => fetchAPI('/admin/cache/flush', { method: 'POST' }),
   adminGetQueueStats: () => fetchAPI('/admin/queue/stats'),
+  getPublicPoints: (params: any = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && String(value).trim() !== '') query.set(key, String(value));
+    });
+    return fetchAPI(`/public/points${query.toString() ? `?${query.toString()}` : ''}`);
+  },
 };

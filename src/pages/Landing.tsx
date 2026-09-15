@@ -1132,28 +1132,29 @@ export const Landing = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center gap-4 h-20 md:h-22">
             
-            {/* LOGO OFICIAL SHIP24GO - SOLO LOGO */}
-            <Link to="/" className="flex items-center cursor-pointer group shrink-0" title={brand.siteName || 'Ship24Go'}>
-              <div className="relative flex items-center justify-center w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-white p-1.5 shadow-sm border border-slate-200/80 dark:border-slate-800 overflow-hidden shrink-0 group-hover:scale-105 transition-transform duration-300">
-                <img 
-                  src={brand.logoUrl || '/brand/logo.png'} 
-                  alt={brand.siteName || 'Ship24Go'} 
-                  className="w-full h-full object-contain" 
-                  onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.png'; }}
-                />
-              </div>
-            </Link>
+            {/* LADO IZQUIERDO: Logo Oficial + Enlaces Principales de Navegación */}
+            <div className="flex items-center gap-4 2xl:gap-8 min-w-0">
+              <Link to="/" className="flex items-center cursor-pointer group shrink-0" title={brand.siteName || 'Ship24Go'}>
+                <div className="relative flex items-center justify-center w-11 h-11 md:w-12 md:h-12 rounded-2xl bg-white p-1.5 shadow-sm border border-slate-200/80 dark:border-slate-800 overflow-hidden shrink-0 group-hover:scale-105 transition-transform duration-300">
+                  <img 
+                    src={brand.logoUrl || '/brand/logo.png'} 
+                    alt={brand.siteName || 'Ship24Go'} 
+                    className="w-full h-full object-contain" 
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = '/logo.png'; }}
+                  />
+                </div>
+              </Link>
 
-            {/* Desktop Nav Links - Con separación visual garantizada, sin solapar el logo ni las acciones */}
-            <div className="hidden xl:flex flex-1 min-w-0 items-center justify-center mx-3 2xl:mx-6 gap-2 xl:gap-3 2xl:gap-5 font-semibold text-[13px] 2xl:text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
-              <a href="#quote-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navQuoter}</a>
-              <Link to="/tracking" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navTracking}</Link>
-              <a href="#point-section" className="px-2.5 py-1 rounded-lg text-cyan-600 dark:text-cyan-400 font-bold hover:bg-cyan-50 dark:hover:bg-cyan-950/40 border border-cyan-500/30 transition-all whitespace-nowrap flex items-center gap-1.5 shadow-sm">
-                <span>🏪</span> {lt.navPoint || 'Points'}
-              </a>
-              <a href="#features-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navServices}</a>
-              <a href="#destinations-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navDestinations}</a>
-              <a href="#pricing-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navPricing}</a>
+              {/* Desktop Nav Links agrupados a la izquierda para garantizar espacio libre con las acciones */}
+              <nav className="hidden xl:flex items-center gap-1.5 2xl:gap-2.5 font-semibold text-[13px] 2xl:text-sm text-slate-600 dark:text-slate-300">
+                <a href="#quote-section" className="px-2.5 py-1.5 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navQuoter}</a>
+                <Link to="/tracking" className="px-2.5 py-1.5 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navTracking}</Link>
+                <Link to="/points" className="px-3 py-1.5 rounded-lg text-cyan-700 dark:text-cyan-300 font-bold bg-cyan-50 dark:bg-cyan-950/50 hover:bg-cyan-100 dark:hover:bg-cyan-900/60 border border-cyan-500/30 transition-all whitespace-nowrap flex items-center gap-1.5 shadow-xs">
+                  <span>🏪</span> {lt.navPoint || 'Points'}
+                </Link>
+                <a href="#features-section" className="px-2.5 py-1.5 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navServices}</a>
+                <a href="#pricing-section" className="px-2.5 py-1.5 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navPricing}</a>
+              </nav>
             </div>
 
             {/* Desktop Nav Actions */}
