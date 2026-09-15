@@ -9,6 +9,7 @@ const PublicPages = lazy(() => import('./pages/Public'));
 const AuthPages = lazy(() => import('./pages/Auth'));
 const CustomerPanel = lazy(() => import('./pages/CustomerPanel'));
 const AdminPanel = lazy(() => import('./pages/AdminPanel'));
+const PointPages = lazy(() => import('./pages/Point'));
 
 function PageFallback() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
         <Routes>
           <Route path="/*" element={<PublicPages />} />
           <Route path="/auth/*" element={<AuthPages />} />
+          <Route path="/point/*" element={<PointPages />} />
           <Route path="/panel/*" element={<CustomerPanel />} />
           <Route path="/admin/*" element={<AdminPanel />} />
           <Route path="/es/customer/integeration" element={<IntegrationCallback />} />

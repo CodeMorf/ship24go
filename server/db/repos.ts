@@ -51,6 +51,12 @@ export async function initDb() {
   const schemaSql = fs.readFileSync(schemaPath, 'utf8');
   await pool.query(schemaSql);
 
+  // Point afiliado: la migración es idempotente para instalaciones nuevas y existentes.
+  const pointSchemaPath = path.resolve(process.cwd(), 'migrations', 'V24__point_affiliate_mvp.sql');
+  if (fs.existsSync(pointSchemaPath)) {
+    await pool.query(fs.readFileSync(pointSchemaPath, 'utf8'));
+  }
+
   await pool.query(`CREATE TABLE IF NOT EXISTS admin_settings (
     id INT PRIMARY KEY,
     settings_json JSON NULL,
@@ -773,8 +779,8 @@ export const TrackingEventRepo = {
 
   async create(event: any): Promise<void> {
     await pool.query(
-      `INSERT INTO tracking_events (id, shipment_id, tracking_code, status_code, status_label, description, event_time) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tracking_events (id, shipment_id, tracking_code, status_code, status_label, description, location, event_time)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         event.id || generateId('evt_'),
         event.shipment_id,
@@ -782,6 +788,7 @@ export const TrackingEventRepo = {
         event.status_code || null,
         event.status_label || event.status,
         event.description,
+        event.location || null,
         event.event_time || new Date().toISOString().slice(0, 19).replace('T', ' ')
       ]
     );
@@ -1024,5 +1031,132 @@ export const TeamRepo = {
     const rolePerms = typeof u.role_permissions === 'string' ? JSON.parse(u.role_permissions) : (u.role_permissions || []);
     const customPerms = typeof u.custom_permissions === 'string' ? JSON.parse(u.custom_permissions) : (u.custom_permissions || []);
     return Array.from(new Set([...rolePerms, ...customPerms]));
+  }
+};
+
+// 15. Points afiliados: ubicación verificada, aprobación y operaciones trazables
+export const PointRepo = {
+  async getByUserId(userId: string): Promise<any | null> {
+    const [rows]: any = await pool.query('SELECT * FROM points WHERE user_id = ? LIMIT 1', [userId]);
+    return rows[0] || null;
+  },
+
+  async getById(id: string): Promise<any | null> {
+    const [rows]: any = await pool.query(
+      `SELECT p.*, u.name AS user_name, u.email AS user_email, u.phone AS user_phone, u.status AS user_status
+       FROM points p
+       INNER JOIN users u ON u.id = p.user_id
+       WHERE p.id = ? LIMIT 1`,
+      [id]
+    );
+    return rows[0] || null;
+  },
+
+  async getAll(): Promise<any[]> {
+    const [rows]: any = await pool.query(
+      `SELECT p.*, u.name AS user_name, u.email AS user_email, u.phone AS user_phone, u.status AS user_status
+       FROM points p
+       INNER JOIN users u ON u.id = p.user_id
+       ORDER BY FIELD(p.status, 'pending', 'approved', 'suspended', 'rejected'), p.created_at ASC`
+    );
+    return rows;
+  },
+
+  async create(point: any): Promise<void> {
+    await pool.query(
+      `INSERT INTO points (
+        id, user_id, business_name, contact_name, email, phone, country, currency,
+        address_line1, civic_number, city, province, postal_code, formatted_address,
+        google_place_id, latitude, longitude, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [
+        point.id,
+        point.user_id,
+        point.business_name,
+        point.contact_name,
+        point.email,
+        point.phone || null,
+        point.country || 'DO',
+        point.currency || 'DOP',
+        point.address_line1,
+        point.civic_number || null,
+        point.city,
+        point.province || null,
+        point.postal_code || null,
+        point.formatted_address,
+        point.google_place_id,
+        point.latitude,
+        point.longitude
+      ]
+    );
+  },
+
+  async updateStatus(id: string, status: string, reviewNote: string, reviewedBy: string): Promise<any | null> {
+    await pool.query(
+      `UPDATE points SET status = ?, review_note = ?, reviewed_by = ?, reviewed_at = NOW(), updated_at = NOW() WHERE id = ?`,
+      [status, reviewNote || null, reviewedBy, id]
+    );
+    return this.getById(id);
+  },
+
+  async getProducts(includeInactive = false): Promise<any[]> {
+    const [rows]: any = await pool.query(
+      `SELECT id, code, name, description, base_price, commission_percent, currency, is_active, sort_order
+       FROM point_products ${includeInactive ? '' : 'WHERE is_active = 1'} ORDER BY sort_order ASC, name ASC`
+    );
+    return rows.map((row: any) => ({
+      ...row,
+      base_price: Number(row.base_price || 0),
+      commission_percent: Number(row.commission_percent || 0)
+    }));
+  },
+
+  async updateProduct(id: string, data: any): Promise<any | null> {
+    const basePrice = Number(data.base_price);
+    const commissionPercent = Number(data.commission_percent);
+    if (!Number.isFinite(basePrice) || basePrice < 0 || !Number.isFinite(commissionPercent) || commissionPercent < 0 || commissionPercent > 100) {
+      return null;
+    }
+    await pool.query(
+      `UPDATE point_products SET base_price = ?, commission_percent = ?, currency = ?, is_active = ?, updated_at = NOW() WHERE id = ?`,
+      [Math.round(basePrice * 100) / 100, Math.round(commissionPercent * 1000) / 1000, String(data.currency || 'DOP').toUpperCase().slice(0, 3), data.is_active === false ? 0 : 1, id]
+    );
+    const products = await this.getProducts(true);
+    return products.find((product: any) => product.id === id) || null;
+  },
+
+  async createOperation(operation: any): Promise<void> {
+    await pool.query(
+      `INSERT INTO point_operations (
+        id, point_id, shipment_id, product_id, product_code, sale_amount,
+        commission_amount, currency, status, receipt_code
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        operation.id,
+        operation.point_id,
+        operation.shipment_id,
+        operation.product_id,
+        operation.product_code,
+        operation.sale_amount,
+        operation.commission_amount,
+        operation.currency || 'DOP',
+        operation.status || 'received',
+        operation.receipt_code
+      ]
+    );
+  },
+
+  async getOperationsByPointId(pointId: string): Promise<any[]> {
+    const [rows]: any = await pool.query(
+      `SELECT po.*, pp.name AS product_name, s.tracking_code, s.status_label,
+              s.recipient_json, s.created_at AS shipment_created_at
+       FROM point_operations po
+       INNER JOIN point_products pp ON pp.id = po.product_id
+       INNER JOIN shipments s ON s.id = po.shipment_id
+       WHERE po.point_id = ?
+       ORDER BY po.created_at DESC`,
+      [pointId]
+    );
+    return rows;
   }
 };

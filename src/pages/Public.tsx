@@ -18,6 +18,7 @@ const Navbar = () => {
         <div className="hidden md:flex gap-8 items-center text-sm font-medium text-gray-600 dark:text-gray-300">
           <Link to="/" className="hover:text-blue-600 dark:hover:text-neon-cyan transition-colors">{t('home')}</Link>
           <Link to="/tracking" className="hover:text-blue-600 dark:hover:text-neon-cyan transition-colors">{t('tracking')}</Link>
+          <Link to="/point/register" className="hover:text-blue-600 dark:hover:text-neon-cyan transition-colors">Afiliar mi comercio</Link>
         </div>
         <div className="flex items-center gap-2 sm:gap-4">
           <LanguageSelector />
@@ -57,6 +58,10 @@ const Home = () => {
           </Link>
         </div>
 
+        <Link to="/point/register" className="mt-5 text-sm font-bold text-blue-700 hover:text-blue-900 inline-flex items-center gap-2">
+          <StorefrontIcon /> ¿Tienes un comercio? Solicita ser Point afiliado
+        </Link>
+
         <div className="mt-24 grid md:grid-cols-3 gap-8 text-left w-full">
           {[
             { title: t('connectStore'), desc: t('connectStoreDesc') },
@@ -74,6 +79,8 @@ const Home = () => {
     </div>
   );
 };
+
+const StorefrontIcon = () => <span aria-hidden="true" className="inline-block w-2 h-2 rounded-full bg-cyan-500" />;
 
 const Tracking = () => {
   const { t, language, setLanguage } = useI18n();

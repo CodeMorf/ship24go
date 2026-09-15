@@ -24,9 +24,11 @@ import {
   TicketRepo,
   RoleRepo,
   TeamRepo,
+  PointRepo,
   hashPassword,
   generateId
 } from './server/db/repos';
+import { validatePointOperation, validatePointRegistration } from './server/pointValidation';
 import { getDocBundle, docsToMarkdown, docsToPdfBuffer, getOpenApiSpec, getOpenAiToolSchemas } from './server/docs/apiDocs';
 import { swaggerUiHtml } from './server/docs/swaggerUi';
 import { registerModularRoutes } from './server/routes/index';
@@ -5673,6 +5675,76 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
+// Registro separado de Points afiliados. El usuario queda activo para poder ver
+// el estado de revisión, pero la emisión de operaciones exige aprobación explícita.
+app.post('/api/point/register', async (req, res) => {
+  const validation = validatePointRegistration(req.body || {});
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.errors[0], errors: validation.errors });
+  }
+
+  const point = validation.value;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [existingRows]: any = await conn.query('SELECT id FROM users WHERE email = ? LIMIT 1', [point.email]);
+    if (existingRows?.length) {
+      await conn.rollback();
+      return res.status(409).json({ error: 'El correo ya está registrado. Intenta iniciar sesión.' });
+    }
+
+    const userId = generateId('usr_');
+    const pointId = generateId('pnt_');
+    await conn.query(
+      `INSERT INTO users (id, email, password_hash, name, phone, country, currency, role, business_type, balance, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'customer', 'Point afiliado', 0.00, 'active')`,
+      [userId, point.email, hashPassword(point.password), point.contactName, point.phone || '', point.country, point.currency]
+    );
+    await conn.query(
+      `INSERT INTO points (
+        id, user_id, business_name, contact_name, email, phone, country, currency,
+        address_line1, civic_number, city, province, postal_code, formatted_address,
+        google_place_id, latitude, longitude, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      [
+        pointId, userId, point.businessName, point.contactName, point.email, point.phone || null,
+        point.country, point.currency, point.addressLine1, point.civicNumber || null, point.city,
+        point.province || null, point.postalCode || null, point.formattedAddress, point.googlePlaceId,
+        point.latitude, point.longitude
+      ]
+    );
+    await conn.commit();
+
+    const token = generateToken({ userId, role: 'customer' });
+    return res.status(201).json({
+      token,
+      user: {
+        id: userId,
+        email: point.email,
+        name: point.contactName,
+        role: 'customer',
+        businessType: 'Point afiliado',
+        currency: point.currency,
+        status: 'active'
+      },
+      point: {
+        id: pointId,
+        businessName: point.businessName,
+        status: 'pending',
+        formattedAddress: point.formattedAddress,
+        latitude: point.latitude,
+        longitude: point.longitude
+      }
+    });
+  } catch (error: any) {
+    await conn.rollback().catch(() => {});
+    console.error('[Point Register Error]:', error?.message || error);
+    return res.status(500).json({ error: 'No se pudo completar el registro del Point.' });
+  } finally {
+    conn.release();
+  }
+});
+
 // 2. Inicio de sesión (Login)
 app.post('/api/auth/login', async (req, res) => {
   try {
@@ -5712,6 +5784,250 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error) {
     console.error('[Diagnóstico Interno] Error en login:', error);
     res.status(500).json({ error: 'No se pudo completar la operación.' });
+  }
+});
+
+// ========== POINT AFILIADO: PERFIL, PRODUCTOS, EMISIÓN Y TRACKING ==========
+app.get('/api/point/me', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'Este usuario no tiene un Point afiliado.' });
+    res.json({ point: {
+      id: point.id,
+      userId: point.user_id,
+      businessName: point.business_name,
+      contactName: point.contact_name,
+      email: point.email,
+      phone: point.phone,
+      country: point.country,
+      currency: point.currency,
+      addressLine1: point.address_line1,
+      civicNumber: point.civic_number,
+      city: point.city,
+      province: point.province,
+      postalCode: point.postal_code,
+      formattedAddress: point.formatted_address,
+      googlePlaceId: point.google_place_id,
+      latitude: Number(point.latitude),
+      longitude: Number(point.longitude),
+      status: point.status,
+      reviewNote: point.review_note,
+      reviewedAt: point.reviewed_at,
+      createdAt: point.created_at
+    }});
+  } catch (error) {
+    console.error('[Point Me Error]:', error);
+    res.status(500).json({ error: 'No se pudo cargar el Point.' });
+  }
+});
+
+app.get('/api/point/products', authMiddleware, async (_req: any, res) => {
+  try {
+    const products = await PointRepo.getProducts();
+    res.json({ products });
+  } catch (error) {
+    console.error('[Point Products Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar los productos del Point.' });
+  }
+});
+
+app.get('/api/point/operations', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'Este usuario no tiene un Point afiliado.' });
+    const operations = await PointRepo.getOperationsByPointId(point.id);
+    res.json({ operations: operations.map((operation: any) => ({
+      id: operation.id,
+      trackingCode: operation.tracking_code,
+      productCode: operation.product_code,
+      productName: operation.product_name,
+      saleAmount: Number(operation.sale_amount || 0),
+      commissionAmount: Number(operation.commission_amount || 0),
+      currency: operation.currency,
+      status: operation.status,
+      statusLabel: operation.status_label,
+      receiptCode: operation.receipt_code,
+      recipient: typeof operation.recipient_json === 'string' ? JSON.parse(operation.recipient_json) : operation.recipient_json,
+      createdAt: operation.created_at
+    })) });
+  } catch (error) {
+    console.error('[Point Operations Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar las operaciones del Point.' });
+  }
+});
+
+app.post('/api/point/operations', authMiddleware, async (req: any, res) => {
+  const validation = validatePointOperation(req.body || {});
+  if (!validation.valid) return res.status(400).json({ error: validation.errors[0], errors: validation.errors });
+
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'Este usuario no tiene un Point afiliado.' });
+    if (point.status !== 'approved') {
+      return res.status(403).json({ error: point.status === 'pending' ? 'El Point está pendiente de aprobación.' : 'El Point no está habilitado para emitir operaciones.' });
+    }
+
+    const input = validation.value;
+    const products = await PointRepo.getProducts();
+    const product = products.find((item: any) => item.code === input.productCode);
+    if (!product) return res.status(400).json({ error: 'El producto seleccionado no está disponible.' });
+
+    const trackingCode = `S24P-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+    const shipmentId = generateId('shp_');
+    const currency = String(point.currency || product.currency || 'DOP').toUpperCase();
+    const commissionAmount = Math.round((input.saleAmount * Number(product.commission_percent || 0) / 100) * 100) / 100;
+    const sender = {
+      name: point.contact_name,
+      company: point.business_name,
+      country: point.country,
+      city: point.city,
+      zipCode: point.postal_code || '',
+      address: point.address_line1,
+      civicNumber: point.civic_number || '',
+      formattedAddress: point.formatted_address,
+      googlePlaceId: point.google_place_id,
+      latitude: Number(point.latitude),
+      longitude: Number(point.longitude),
+      phone: point.phone || '',
+      email: point.email
+    };
+    const recipient = {
+      name: input.recipientName,
+      country: input.recipientCountry,
+      city: input.recipientCity,
+      address: input.recipientAddress,
+      zipCode: String(req.body.postalCode || '').trim().slice(0, 30),
+      phone: String(req.body.recipientPhone || '').trim().slice(0, 50),
+      email: String(req.body.recipientEmail || '').trim().slice(0, 191)
+    };
+
+    await ShipmentRepo.create({
+      id: shipmentId,
+      user_id: req.user.id,
+      tracking_code: trackingCode,
+      order_number: trackingCode,
+      reference: `POINT-${point.id}`,
+      status: 'point_received',
+      status_label: 'Recibido en Point',
+      sender,
+      recipient,
+      provider_payload_json: { source: 'point', pointId: point.id, productCode: product.code }
+    });
+    await pool.query('UPDATE shipments SET point_id = ? WHERE id = ?', [point.id, shipmentId]);
+
+    const operationId = generateId('pop_');
+    try {
+      await PointRepo.createOperation({
+        id: operationId,
+        point_id: point.id,
+        shipment_id: shipmentId,
+        product_id: product.id,
+        product_code: product.code,
+        sale_amount: input.saleAmount,
+        commission_amount: commissionAmount,
+        currency,
+        status: 'received',
+        receipt_code: trackingCode
+      });
+    } catch (operationError) {
+      await pool.query('DELETE FROM shipments WHERE id = ?', [shipmentId]).catch(() => {});
+      throw operationError;
+    }
+
+    await TrackingEventRepo.create({
+      shipment_id: shipmentId,
+      tracking_code: trackingCode,
+      status: 'point_received',
+      status_label: 'Recibido en Point',
+      description: `Operación registrada en ${point.business_name}.`,
+      location: point.city
+    });
+
+    res.status(201).json({
+      success: true,
+      operation: {
+        id: operationId,
+        trackingCode,
+        receiptCode: trackingCode,
+        receiptUrl: `/tracking?code=${encodeURIComponent(trackingCode)}`,
+        productCode: product.code,
+        saleAmount: input.saleAmount,
+        commissionAmount,
+        currency,
+        status: 'received'
+      }
+    });
+  } catch (error: any) {
+    console.error('[Point Operation Create Error]:', error?.message || error);
+    res.status(500).json({ error: 'No se pudo registrar la operación del Point.' });
+  }
+});
+
+// Administración del registro y habilitación de Points.
+app.get('/api/admin/points', authMiddleware, requireAdminOrPermission('points.view'), async (_req: any, res) => {
+  try {
+    const points = await PointRepo.getAll();
+    res.json({ points: points.map((point: any) => ({
+      id: point.id,
+      userId: point.user_id,
+      businessName: point.business_name,
+      contactName: point.contact_name,
+      email: point.email,
+      phone: point.phone,
+      country: point.country,
+      currency: point.currency,
+      formattedAddress: point.formatted_address,
+      latitude: Number(point.latitude),
+      longitude: Number(point.longitude),
+      status: point.status,
+      reviewNote: point.review_note,
+      createdAt: point.created_at,
+      reviewedAt: point.reviewed_at
+    })) });
+  } catch (error) {
+    console.error('[Admin Points List Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar los Points.' });
+  }
+});
+
+app.get('/api/admin/point-products', authMiddleware, requireAdminOrPermission('points.view'), async (_req: any, res) => {
+  try {
+    res.json({ products: await PointRepo.getProducts(true) });
+  } catch (error) {
+    console.error('[Admin Point Products List Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar los productos de Points.' });
+  }
+});
+
+app.post('/api/admin/point-products/:id', authMiddleware, requireAdminOrPermission('points.manage'), async (req: any, res) => {
+  try {
+    const product = await PointRepo.updateProduct(req.params.id, {
+      base_price: req.body?.basePrice,
+      commission_percent: req.body?.commissionPercent,
+      currency: req.body?.currency,
+      is_active: req.body?.isActive !== false
+    });
+    if (!product) return res.status(400).json({ error: 'Precio o comisión no válidos.' });
+    res.json({ success: true, product });
+  } catch (error) {
+    console.error('[Admin Point Product Update Error]:', error);
+    res.status(500).json({ error: 'No se pudo actualizar el producto del Point.' });
+  }
+});
+
+app.post('/api/admin/points/:id/status', authMiddleware, requireAdminOrPermission('points.manage'), async (req: any, res) => {
+  try {
+    const allowed = ['pending', 'approved', 'suspended', 'rejected'];
+    const status = String(req.body?.status || '').trim().toLowerCase();
+    const reviewNote = String(req.body?.reviewNote || '').trim().slice(0, 500);
+    if (!allowed.includes(status)) return res.status(400).json({ error: 'Estado de Point no válido.' });
+    const current = await PointRepo.getById(req.params.id);
+    if (!current) return res.status(404).json({ error: 'Point no encontrado.' });
+    const point = await PointRepo.updateStatus(req.params.id, status, reviewNote, req.user.id);
+    res.json({ success: true, point: { id: point.id, status: point.status, reviewNote: point.review_note, reviewedAt: point.reviewed_at } });
+  } catch (error) {
+    console.error('[Admin Point Status Error]:', error);
+    res.status(500).json({ error: 'No se pudo actualizar el estado del Point.' });
   }
 });
 

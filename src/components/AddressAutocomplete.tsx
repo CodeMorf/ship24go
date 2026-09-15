@@ -10,6 +10,8 @@ type AddressParts = {
   country: string;
   formattedAddress: string;
   googlePlaceId: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 interface AddressAutocompleteProps {
@@ -158,7 +160,7 @@ export function AddressAutocomplete({
       .then(() => {
         if (!mounted || !window.google?.maps?.places || !inputRef.current) return;
         autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
-          fields: ['address_components', 'formatted_address', 'place_id', 'name'],
+          fields: ['address_components', 'formatted_address', 'place_id', 'name', 'geometry'],
           types: ['address'],
           componentRestrictions: selectedCountry ? { country: selectedCountry.toLowerCase() } : undefined,
         });
@@ -172,6 +174,9 @@ export function AddressAutocomplete({
           const city = extractCity(components);
           const country = component(components, 'country', 'short_name') || selectedCountry;
           const line1 = joinStreet(street || place?.name || value, civic || civicNumber);
+          const location = place?.geometry?.location;
+          const latitude = typeof location?.lat === 'function' ? Number(location.lat()) : null;
+          const longitude = typeof location?.lng === 'function' ? Number(location.lng()) : null;
 
           onChange(line1);
           if (onCivicNumberChange && civic) onCivicNumberChange(civic);
@@ -184,6 +189,8 @@ export function AddressAutocomplete({
             country,
             formattedAddress: place?.formatted_address || line1,
             googlePlaceId: place?.place_id || '',
+            latitude: Number.isFinite(latitude) ? latitude : null,
+            longitude: Number.isFinite(longitude) ? longitude : null,
           });
         });
         setMapsReady(true);

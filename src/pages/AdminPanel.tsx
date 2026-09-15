@@ -34,6 +34,7 @@ import AdminDocs from '../components/AdminDocs';
 import AdminAuditLogs from '../components/AdminAuditLogs';
 import { AiCopilotChat } from '../components/AiCopilotChat';
 import AdminTeam from './AdminTeam';
+import AdminPoints from './AdminPoints';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -82,6 +83,7 @@ const AdminSidebar = ({ isMobileMenuOpen, toggleMobileMenu, currentUser, isDark,
     { name: 'Planes & Descuentos', path: '/admin/plans', icon: Crown, permission: 'plans.manage' },
     { name: t('bank_admin_nav'), path: '/admin/banks', icon: CreditCard, permission: 'banks.manage' },
     { name: 'Equipo & Roles', path: '/admin/team', icon: ShieldCheck, permission: 'team.view' },
+    { name: 'Points afiliados', path: '/admin/points', icon: MapPin, permission: 'points.view' },
     { name: t('reports'), path: '/admin/reports', icon: BarChart3, permission: 'reports.view' },
     { name: t('settings'), path: '/admin/settings', icon: Settings, permission: 'settings.manage' },
     { name: 'Docs & Arquitectura', path: '/admin/settings/docs', icon: BookOpen, permission: 'settings.manage' },
@@ -3279,6 +3281,7 @@ export default function AdminPanel() {
             <Route path="/plans" element={<AdminPlans />} />
             <Route path="/banks" element={<AdminBankWallet />} />
             <Route path="/team" element={<AdminTeam currentUser={currentUser} />} />
+            <Route path="/points" element={<AdminPoints />} />
             <Route path="/reports" element={<AdminReports />} />
             <Route path="/settings" element={<AdminSettings />} />
             <Route path="/settings/cron" element={<AdminLabelCron />} />
