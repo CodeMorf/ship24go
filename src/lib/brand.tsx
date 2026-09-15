@@ -113,7 +113,7 @@ export function BrandMark({
   textClassName = '', 
   dark = false,
   showTagline = false,
-  showText = true,
+  showText = false,
 }: { 
   className?: string; 
   iconClassName?: string; 

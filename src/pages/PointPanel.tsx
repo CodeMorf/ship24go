@@ -203,10 +203,10 @@ export default function PointPanel() {
         <div className="max-w-7xl mx-auto px-5 sm:px-8 py-3.5 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Link to="/">
-              <BrandMark iconClassName="w-8 h-8 rounded-xl" textClassName="text-lg font-black text-slate-900 dark:text-white" />
+              <BrandMark showText={false} iconClassName="w-8 h-8 rounded-xl" />
             </Link>
-            <span className="hidden md:inline-block w-px h-5 bg-slate-200 dark:bg-slate-800" />
-            <span className="hidden md:inline text-xs font-black uppercase tracking-wider text-blue-600 dark:text-cyan-400">
+            <span className="hidden sm:inline-block w-px h-5 bg-slate-200 dark:bg-slate-800" />
+            <span className="text-xs font-black uppercase tracking-wider text-blue-600 dark:text-cyan-400">
               Point Logistics Partner
             </span>
           </div>
