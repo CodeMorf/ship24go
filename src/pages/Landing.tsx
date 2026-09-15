@@ -37,6 +37,7 @@ import { useI18n, Language } from '../lib/i18n';
 import { useTheme } from '../lib/theme';
 import { ZipCodeAutocomplete } from '../components/ZipCodeAutocomplete';
 import { CountrySelect } from '../components/CountrySelect';
+import { ONLY_USA_MODE } from '../lib/countries';
 import { api, getAuthToken } from '../lib/api';
 import { BrandMark, useBrand } from '../lib/brand';
 import { useCurrency } from '../lib/currency';
@@ -976,10 +977,10 @@ export const Landing = () => {
 
   // Formulario de Cotización
   const [form, setForm] = useState({
-    originCountry: 'ES',
-    originZip: '',
-    destCountry: 'DE',
-    destZip: ''
+    originCountry: ONLY_USA_MODE ? 'US' : 'ES',
+    originZip: ONLY_USA_MODE ? '10001' : '',
+    destCountry: ONLY_USA_MODE ? 'US' : 'DE',
+    destZip: ONLY_USA_MODE ? '90001' : ''
   });
 
   // Detección geográfica inicial por IP de origen
@@ -988,6 +989,7 @@ export const Landing = () => {
     const applyCountry = (cc: string) => {
       const code = String(cc || '').toUpperCase().slice(0, 2);
       if (!code || cancelled) return;
+      if (ONLY_USA_MODE && code !== 'US') return; // En modo de prueba solo USA, mantener US
       setForm(prev => (prev.originZip ? prev : { ...prev, originCountry: code }));
     };
     const cached = sessionStorage.getItem('ship24go_geo_country') || localStorage.getItem('ship24go_country');
@@ -1058,8 +1060,8 @@ export const Landing = () => {
     setQuotes([]);
     try {
       const res = await api.quoteShipment({
-        originCountry: String(form.originCountry || 'ES').toUpperCase().slice(0, 2),
-        destCountry: String(form.destCountry || 'DE').toUpperCase().slice(0, 2),
+        originCountry: String(form.originCountry || (ONLY_USA_MODE ? 'US' : 'ES')).toUpperCase().slice(0, 2),
+        destCountry: String(form.destCountry || (ONLY_USA_MODE ? 'US' : 'DE')).toUpperCase().slice(0, 2),
         originZip,
         destZip,
         packages: packages.map(pkg => ({
@@ -1069,7 +1071,7 @@ export const Landing = () => {
           weight: Math.max(0.1, Number(pkg.weight) || 1),
           qty: Math.max(1, Number(pkg.qty) || 1),
         })),
-        currency: currency || 'EUR',
+        currency: currency || 'USD',
       });
       const next = Array.isArray(res?.quotes) ? res.quotes : [];
       setQuotes(next);

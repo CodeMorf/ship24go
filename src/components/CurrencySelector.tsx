@@ -16,9 +16,9 @@ export const CurrencySelector = ({ compact = true }: { compact?: boolean }) => {
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
-  // Priority order: DOP first among common
+  // Priority order: USD first as primary currency
   const ordered = [...availableCurrencies].sort((a, b) => {
-    const p = ['DOP', 'EUR', 'USD', 'GBP', 'COP', 'MXN', 'ARS', 'CLP', 'BRL', 'CNY', 'HTG', 'CAD'];
+    const p = ['USD', 'EUR', 'DOP', 'GBP', 'COP', 'MXN', 'ARS', 'CLP', 'BRL', 'CNY', 'HTG', 'CAD'];
     const ia = p.indexOf(a.code); const ib = p.indexOf(b.code);
     if (ia === -1 && ib === -1) return a.code.localeCompare(b.code);
     if (ia === -1) return 1;

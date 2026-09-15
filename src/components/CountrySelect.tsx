@@ -6,6 +6,7 @@ import {
   getCountryFlag,
   WORLD_COUNTRIES,
   WorldCountry,
+  ONLY_USA_MODE,
 } from '../lib/countries';
 
 type Props = {
@@ -186,7 +187,16 @@ export function CountrySelect({
   }, [lang]);
 
   const baseList = useMemo(() => {
-    return remote && remote.length ? remote : WORLD_COUNTRIES;
+    const full = remote && remote.length ? remote : WORLD_COUNTRIES;
+    // ============================================================================
+    // MODO DE PRUEBA: Bloqueo de Europa (Solo Estados Unidos activo)
+    // Para volver a mostrar Europa y todos los países del mundo, cambia:
+    // ONLY_USA_MODE = false en src/lib/countries.ts
+    // ============================================================================
+    if (ONLY_USA_MODE) {
+      return full.filter((c) => c.code === 'US');
+    }
+    return full;
   }, [remote]);
 
   const byCode = useMemo(() => {

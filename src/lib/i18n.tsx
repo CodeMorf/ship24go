@@ -1615,6 +1615,10 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const saved = normalizeLanguage(localStorage.getItem('ship24go_lang') || localStorage.getItem('spedire_lang'));
         if (saved) return saved;
       }
+      // Detección inmediata del idioma del cliente mediante el navegador
+      const browserRaw = navigator.language || (Array.isArray(navigator.languages) && navigator.languages[0]) || '';
+      const fromBrowser = normalizeLanguage(browserRaw);
+      if (fromBrowser) return fromBrowser;
     }
     return 'es';
   });

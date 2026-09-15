@@ -16,7 +16,21 @@ export const FLAG_API = {
     `https://flagsapi.com/${String(countryCode || '').toUpperCase()}/${style}/${size}.png`,
 };
 
-export const PRIORITY_COUNTRY_CODES = ["ES", "IT", "DO", "CO", "MX", "US", "GB", "DE", "FR", "PT", "BR", "AR", "CL", "PE", "EC", "PA", "CR", "GT", "HN", "SV", "NI", "UY", "PY", "BO", "VE", "CA", "NL", "BE", "CH", "AT", "PL", "SE", "NO", "DK", "IE", "CN", "JP", "KR", "AU", "NZ", "IN", "AE", "SA", "TR", "MA", "ZA"] as const;
+export const PRIORITY_COUNTRY_CODES = ["US", "DO", "ES", "IT", "CO", "MX", "GB", "DE", "FR", "PT", "BR", "AR", "CL", "PE", "EC", "PA", "CR", "GT", "HN", "SV", "NI", "UY", "PY", "BO", "VE", "CA", "NL", "BE", "CH", "AT", "PL", "SE", "NO", "DK", "IE", "CN", "JP", "KR", "AU", "NZ", "IN", "AE", "SA", "TR", "MA", "ZA"] as const;
+
+/**
+ * ============================================================================
+ * MODO DE PRUEBA: BLOQUEO DE EUROPA (SOLO ESTADOS UNIDOS)
+ * ----------------------------------------------------------------------------
+ * Si ONLY_USA_MODE es true, la plataforma bloquea los países de Europa
+ * y restringe los selectores y cotizaciones exclusivamente a Estados Unidos (US).
+ * 
+ * PARA VOLVER A ABRIR EUROPA Y EL RESTO DEL MUNDO:
+ * Cambia esta constante a false:
+ * export const ONLY_USA_MODE = false;
+ * ============================================================================
+ */
+export const ONLY_USA_MODE = true; // <-- CAMBIAR A false PARA DESBLOQUEAR EUROPA Y TODOS LOS PAÍSES
 
 export const WORLD_COUNTRIES: WorldCountry[] = [
   { code: 'AD', nameEn: 'Andorra', nameEs: 'Andorra', language: 'ca', languageName: 'Catalán', currency: 'EUR', flag: 'https://flagsapi.com/AD/flat/64.png', flagSm: 'https://flagsapi.com/AD/flat/32.png' },

@@ -144,13 +144,12 @@ app.get('/api/public/locale', async (req, res) => {
     }
 
     const row = country ? byCode[country] : null;
-    // language + currency from MySQL when available
-    let language = row
-      ? mapDbLanguageToApp(row.languageCode, country)
-      : detectLanguageFromRequest(req);
+    // Prioridad 1: idioma del cliente (Accept-Language); fallback a configuración del país o español
+    const clientLang = detectLanguageFromRequest(req);
+    let language = clientLang || (row ? mapDbLanguageToApp(row.languageCode, country) : 'es');
     let currency = row?.currency
       ? String(row.currency).toUpperCase()
-      : countryToCurrencyCode(country || 'ES');
+      : countryToCurrencyCode(country || 'US');
 
     // Build maps from DB (no guessing)
     const countryCurrencyMap: Record<string, string> = {};
@@ -162,8 +161,8 @@ app.get('/api/public/locale', async (req, res) => {
       countryLanguageMap[code] = mapDbLanguageToApp(r.languageCode, code);
     }
 
-    // Priority currencies for selector (must include DOP, EUR, USD…)
-    const priority = ['DOP', 'EUR', 'USD', 'GBP', 'COP', 'MXN', 'ARS', 'CLP', 'BRL', 'PEN', 'CNY', 'HTG', 'CAD', 'AUD', 'CHF'];
+    // Priority currencies for selector (USD como moneda principal predeterminada)
+    const priority = ['USD', 'EUR', 'DOP', 'GBP', 'COP', 'MXN', 'ARS', 'CLP', 'BRL', 'PEN', 'CNY', 'HTG', 'CAD', 'AUD', 'CHF'];
     const currencySet = new Set<string>();
     for (const c of priority) currencySet.add(c);
     for (const r of rows) {
@@ -2592,7 +2591,7 @@ function countryToCurrencyCode(country: string): string {
     IE: 'EUR', AT: 'EUR', FI: 'EUR', GR: 'EUR', LU: 'EUR',
     CH: 'EUR', // display EUR on platform (user can change)
   };
-  return map[c] || 'EUR';
+  return map[c] || 'USD';
 }
 
 
@@ -2690,23 +2689,29 @@ async function resolveCountryFromIp(ip: string): Promise<string | null> {
 }
 
 function detectLanguageFromRequest(req: any): string {
+  // 1. Respetar prioritariamente el idioma configurado en el navegador del cliente
+  const header = String(req.headers['accept-language'] || '').toLowerCase();
+  if (header) {
+    if (header.startsWith('it') || header.includes('it-') || header.includes(',it')) return 'it';
+    if (header.startsWith('de') || header.includes('de-') || header.includes(',de')) return 'de';
+    if (header.startsWith('fr') || header.includes('fr-') || header.includes(',fr')) return 'fr';
+    if (header.startsWith('zh') || header.includes('zh-') || header.includes(',zh')) return 'zh';
+    if (header.startsWith('ht') || header.includes('ht-') || header.includes(',ht')) return 'ht';
+    if (header.startsWith('en') || header.includes('en-') || header.includes(',en')) return 'en';
+    if (header.startsWith('es') || header.includes('es-') || header.includes(',es')) {
+      if (header.includes('es-do')) return 'es-DO';
+      if (header.includes('es-co')) return 'es-CO';
+      if (header.includes('es-ec')) return 'es-EC';
+      return 'es';
+    }
+  }
+
+  // 2. Fallback por geolocalización de país
   const country = String(req.headers['cf-ipcountry'] || req.headers['x-vercel-ip-country'] || req.headers['x-country-code'] || '').toUpperCase().slice(0, 2);
   if (country && country !== 'XX' && country !== 'T1') {
     return countryToLanguageCode(country);
   }
-  const header = String(req.headers['accept-language'] || '').toLowerCase();
-  if (header.startsWith('it') || header.includes('it-')) return 'it';
-  if (header.startsWith('de') || header.includes('de-')) return 'de';
-  if (header.startsWith('fr') || header.includes('fr-')) return 'fr';
-  if (header.startsWith('zh') || header.includes('zh-')) return 'zh';
-  if (header.startsWith('ht') || header.includes('ht-')) return 'ht';
-  if (header.startsWith('en') || header.includes('en-')) return 'en';
-  if (header.startsWith('es') || header.includes('es-')) {
-    if (header.includes('es-do')) return 'es-DO';
-    if (header.includes('es-co')) return 'es-CO';
-    if (header.includes('es-ec')) return 'es-EC';
-    return 'es';
-  }
+
   return 'es';
 }
 
@@ -7913,10 +7918,29 @@ app.post('/api/shipments/quote', async (req: any, res) => {
       return res.json({ ...cachedResult, _cached: true, _cachedAt: Date.now() });
     }
     const { originZip, destZip, weight, originCountry, destCountry, packages, currency } = req.body;
-    const countryFrom = String(originCountry || 'ES').toUpperCase().slice(0, 2);
-    const countryTo = String(destCountry || 'ES').toUpperCase().slice(0, 2);
+    const countryFrom = String(originCountry || 'US').toUpperCase().slice(0, 2);
+    const countryTo = String(destCountry || 'US').toUpperCase().slice(0, 2);
     const zipFrom = String(originZip || '').trim();
     const zipTo = String(destZip || '').trim();
+
+    // =========================================================================
+    // MODO DE PRUEBA: BLOQUEO DE EUROPA (SOLO ESTADOS UNIDOS ACTIVO)
+    // Para volver a abrir Europa en el cotizador, cambia BLOCK_EUROPE_TEST_MODE a false.
+    // =========================================================================
+    const BLOCK_EUROPE_TEST_MODE = true;
+
+    const EUROPE_COUNTRY_CODES = new Set([
+      'ES', 'FR', 'DE', 'IT', 'PT', 'GB', 'UK', 'NL', 'BE', 'IE', 'AT', 'CH',
+      'PL', 'SE', 'NO', 'DK', 'FI', 'CZ', 'RO', 'HU', 'GR', 'BG', 'HR', 'SK',
+      'SI', 'LT', 'LV', 'EE', 'CY', 'LU', 'MT', 'IS'
+    ]);
+
+    if (BLOCK_EUROPE_TEST_MODE && (EUROPE_COUNTRY_CODES.has(countryFrom) || EUROPE_COUNTRY_CODES.has(countryTo))) {
+      return res.status(400).json({
+        error: 'Ruta no disponible en este modo de prueba. Actualmente las cotizaciones están habilitadas exclusivamente para Estados Unidos (US).',
+        code: 'EUROPE_BLOCKED_TEST_MODE'
+      });
+    }
 
     // Infer missing cities from CAP (IT SpedirePro/SpediamoPro/PaccoFacile return 0 without city)
     if (!String(req.body.originCity || req.body.origin_city || '').trim()) {
@@ -7933,7 +7957,7 @@ app.post('/api/shipments/quote', async (req: any, res) => {
         req.body.dest_city = inferredDest;
       }
     }
-    let requestedCurrency = String(currency || 'EUR').toUpperCase().slice(0, 3);
+    let requestedCurrency = String(currency || 'USD').toUpperCase().slice(0, 3);
 
     if (!countryFrom || !countryTo || !zipFrom || !zipTo) {
       return res.status(400).json({ error: 'Completa los datos del envío para ver opciones disponibles.' });

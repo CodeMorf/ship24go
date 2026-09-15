@@ -29,9 +29,9 @@ export const countryCurrencyMapFallback: Record<string, string> = {
 };
 
 export const defaultCurrencies: CurrencyItem[] = [
-  { code: 'DOP', symbol: 'RD$', name: 'Peso dominicano', decimals: 2 },
-  { code: 'EUR', symbol: '€', name: 'Euro', decimals: 2 },
   { code: 'USD', symbol: '$', name: 'Dólar estadounidense', decimals: 2 },
+  { code: 'EUR', symbol: '€', name: 'Euro', decimals: 2 },
+  { code: 'DOP', symbol: 'RD$', name: 'Peso dominicano', decimals: 2 },
   { code: 'GBP', symbol: '£', name: 'Libra esterlina', decimals: 2 },
   { code: 'COP', symbol: 'COP$', name: 'Peso colombiano', decimals: 0 },
   { code: 'MXN', symbol: 'MX$', name: 'Peso mexicano', decimals: 2 },
@@ -49,8 +49,8 @@ export const availableCurrencies = defaultCurrencies;
 export const countryCurrencyMap = countryCurrencyMapFallback;
 
 const defaultRates: Record<string, number> = {
-  EUR: 1.0, USD: 1.09, DOP: 66.6, GBP: 0.84, COP: 4420, MXN: 19.5,
-  ARS: 990, CLP: 1020, BRL: 6.15, PEN: 4.05, CNY: 7.85, HTG: 142, CAD: 1.48,
+  USD: 1.0, EUR: 0.92, DOP: 60.5, GBP: 0.77, COP: 4150, MXN: 18.5,
+  ARS: 990, CLP: 940, BRL: 5.65, PEN: 3.75, CNY: 7.20, HTG: 132, CAD: 1.36,
 };
 
 const normalizeCurrency = (code: any, list: CurrencyItem[] = defaultCurrencies) => {
@@ -58,14 +58,14 @@ const normalizeCurrency = (code: any, list: CurrencyItem[] = defaultCurrencies) 
   if (list.some((c) => c.code === value)) return value;
   // allow codes even if not in list yet (from DB)
   if (/^[A-Z]{3}$/.test(value)) return value;
-  return 'EUR';
+  return 'USD';
 };
 
 const normalizeCountry = (code: any) => String(code || '').trim().toUpperCase().slice(0, 2);
 
 export function CurrencyProvider({ children }: { children: React.ReactNode }) {
   const [currency, setCurrencyState] = useState(() =>
-    normalizeCurrency(localStorage.getItem('ship24go_currency') || localStorage.getItem('enviox_currency') || 'EUR')
+    normalizeCurrency(localStorage.getItem('ship24go_currency') || localStorage.getItem('enviox_currency') || 'USD')
   );
   const [country, setCountryState] = useState(() => normalizeCountry(localStorage.getItem('ship24go_country') || ''));
   const [rates, setRates] = useState<Record<string, number>>(defaultRates);
@@ -127,14 +127,14 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
         const map = { ...countryCurrencyMapFallback, ...(data.countryCurrencyMap || {}) };
         const cc = detectedCountry || normalizeCountry(localStorage.getItem('ship24go_country'));
         const detectedCurrency = normalizeCurrency(
-          data.currency || map[cc] || 'EUR',
+          data.currency || map[cc] || 'USD',
           Array.isArray(data.currencies) ? data.currencies : defaultCurrencies
         );
 
         if (detectedCurrency && !manualCurrency) {
           const hasSaved = localStorage.getItem('ship24go_currency') || localStorage.getItem('enviox_currency');
           const autoOnly = localStorage.getItem('ship24go_currency_auto') === '1';
-          // Always re-apply auto currency from geo when not manual (fixes stuck EUR for DO)
+          // Always re-apply auto currency from geo when not manual (fixes stuck currency)
           if (!hasSaved || autoOnly || (cc === 'DO' && detectedCurrency === 'DOP' && !manualCurrency)) {
             setCurrencyState(detectedCurrency);
             localStorage.setItem('enviox_currency', detectedCurrency);
@@ -179,7 +179,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const convert = (amount: number, from: string = 'EUR') => {
+  const convert = (amount: number, from: string = 'USD') => {
     const value = Number(amount || 0);
     if (!Number.isFinite(value)) return 0;
     const source = normalizeCurrency(from, available);
@@ -189,7 +189,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
     return target === 'EUR' ? amountInEUR : amountInEUR * (rates[target] || defaultRates[target] || 1);
   };
 
-  const format = (amount: number, from: string = 'EUR') => {
+  const format = (amount: number, from: string = 'USD') => {
     const converted = convert(amount, from);
     const curr = available.find((c) => c.code === normalizeCurrency(currency, available)) || available[0] || defaultCurrencies[0];
     try {
