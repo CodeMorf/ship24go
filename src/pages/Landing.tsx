@@ -136,7 +136,49 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     footerRights: 'Todos los derechos reservados.',
     footerPrivacy: 'Política de Privacidad',
     footerTerms: 'Términos de Servicio',
-    footerSecurity: 'Seguridad'
+    footerSecurity: 'Seguridad',
+    seoTitle: 'Ship24Go | Logística global y envíos inteligentes',
+    seoDescription: 'Cotiza envíos, compara transportistas, crea etiquetas y rastrea paquetes desde una plataforma logística global.',
+    trackingPlaceholder: 'Ej: SP24-88492048',
+    optionsFound: 'Opciones encontradas',
+    networkHeroSuffix: '50+ transportistas',
+    networkHubsLabel: 'Hubs exprés',
+    networkHubsDesc: 'Aeropuertos y centros de distribución',
+    networkInsuranceLabel: 'Seguro de carga',
+    networkInsuranceDesc: 'Cobertura contra pérdidas o daños',
+    networkCouriersLabel: 'Transportistas oficiales integrados',
+    planStandardTitle: 'Plan Estándar',
+    planBasicName: 'Ship24Go Básico',
+    planProName: 'Ship24Go Pro',
+    planEnterpriseName: 'Ship24Go Enterprise',
+    planStandardDesc: 'Ideal para particulares y pequeños vendedores ecommerce.',
+    planStandardFeature1: 'Tarifas estándar negociadas',
+    planStandardFeature2: 'Cotizador multi-courier en vivo',
+    planStandardFeature3: 'Descarga de etiquetas al instante',
+    planStandardFeature4: 'Seguimiento automatizado de paquetes',
+    planProOffer: '10% de descuento en todos los envíos',
+    planProDesc: 'Para comercios en crecimiento que buscan el mayor ahorro.',
+    planProFeature1: '10% de descuento directo en envíos',
+    planProFeature2: 'Rastreo predictivo con IA',
+    planProFeature3: 'Sincronización de tiendas Shopify/Woo',
+    planProFeature4: 'Soporte prioritario 24/7',
+    planEnterpriseOffer: '20% de descuento y máximo ahorro',
+    planEnterpriseDesc: 'Para grandes empresas, almacenes y altos volúmenes.',
+    planEnterpriseFeature1: '20% de descuento máximo en envíos',
+    planEnterpriseFeature2: 'Despacho aduanero asistido y códigos HS',
+    planEnterpriseFeature3: 'Account Manager dedicado y SLA',
+    planEnterpriseFeature4: 'Webhooks y acceso API sin límite',
+    postalDefault: 'Código Postal',
+    quoteMissingPostal: 'Completa los códigos postales de origen y destino.',
+    quoteNoOptions: 'No encontramos opciones para esta ruta.',
+    quoteSuccess: 'Precios públicos oficiales con descuento. Inicia sesión para emitir la etiqueta.',
+    quoteFailed: 'No se pudo cotizar ahora. Intenta de nuevo.',
+    quoteLogin: 'Inicia sesión o regístrate para comprar la etiqueta con el precio cotizado.',
+    footerDestEurope: 'España y Unión Europea',
+    footerDestUSA: 'Estados Unidos',
+    footerDestDO: 'República Dominicana',
+    footerDestLatam: 'América Latina',
+    footerApiDocs: 'Documentación API'
   },
   en: {
     navQuoter: 'Rate Calculator',
@@ -230,7 +272,49 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     footerRights: 'All rights reserved.',
     footerPrivacy: 'Privacy Policy',
     footerTerms: 'Terms of Service',
-    footerSecurity: 'Security'
+    footerSecurity: 'Security',
+    seoTitle: 'Ship24Go | Global shipping and logistics intelligence',
+    seoDescription: 'Quote shipments, compare carriers, create labels, and track every package from one global logistics platform.',
+    trackingPlaceholder: 'E.g. SP24-88492048',
+    optionsFound: 'Options found',
+    networkHeroSuffix: '50+ Couriers',
+    networkHubsLabel: 'Express hubs',
+    networkHubsDesc: 'Airports and distribution centers',
+    networkInsuranceLabel: 'Cargo insurance',
+    networkInsuranceDesc: 'Coverage against loss or damage',
+    networkCouriersLabel: 'Official integrated couriers',
+    planStandardTitle: 'Standard Plan',
+    planBasicName: 'Ship24Go Basic',
+    planProName: 'Ship24Go Pro',
+    planEnterpriseName: 'Ship24Go Enterprise',
+    planStandardDesc: 'Perfect for individuals and small online sellers.',
+    planStandardFeature1: 'Negotiated carrier rates',
+    planStandardFeature2: 'Real-time multi-carrier calculator',
+    planStandardFeature3: 'Instant thermal label printing',
+    planStandardFeature4: 'Automated tracking notifications',
+    planProOffer: '10% off all shipments',
+    planProDesc: 'For scaling online businesses with regular dispatches.',
+    planProFeature1: '10% discount on every shipment',
+    planProFeature2: 'AI predictive tracking alerts',
+    planProFeature3: 'Shopify & WooCommerce live sync',
+    planProFeature4: '24/7 priority customer support',
+    planEnterpriseOffer: '20% off for maximum savings',
+    planEnterpriseDesc: 'For large enterprises, marketplaces, and wholesalers.',
+    planEnterpriseFeature1: '20% maximum discount on shipments',
+    planEnterpriseFeature2: 'Assisted customs clearance & HS codes',
+    planEnterpriseFeature3: 'Dedicated account manager & SLA',
+    planEnterpriseFeature4: 'Unlimited REST API webhooks',
+    postalDefault: 'Postal / Zip Code',
+    quoteMissingPostal: 'Please fill in both origin and destination zip codes.',
+    quoteNoOptions: 'No courier options found for this specific route.',
+    quoteSuccess: 'Real-time quotes with official carrier discounts. Log in to complete dispatch.',
+    quoteFailed: 'Could not calculate rates. Please try again.',
+    quoteLogin: 'Log in or sign up to finalize your booking with the selected quote.',
+    footerDestEurope: 'Spain & European Union',
+    footerDestUSA: 'United States',
+    footerDestDO: 'Dominican Republic',
+    footerDestLatam: 'Latin America',
+    footerApiDocs: 'API Documentation'
   },
   it: {
     navQuoter: 'Calcolatore',
@@ -324,7 +408,49 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     footerRights: 'Tutti i diritti riservati.',
     footerPrivacy: 'Privacy',
     footerTerms: 'Termini',
-    footerSecurity: 'Sicurezza'
+    footerSecurity: 'Sicurezza',
+    seoTitle: 'Ship24Go | Logistica globale e spedizioni intelligenti',
+    seoDescription: 'Calcola le spedizioni, confronta i corrieri, crea etichette e traccia ogni pacco da un’unica piattaforma globale.',
+    trackingPlaceholder: 'Es: SP24-88492048',
+    optionsFound: 'Opzioni trovate',
+    networkHeroSuffix: '50+ corrieri',
+    networkHubsLabel: 'Hub express',
+    networkHubsDesc: 'Aeroporti e centri di distribuzione',
+    networkInsuranceLabel: 'Assicurazione merci',
+    networkInsuranceDesc: 'Copertura contro perdita o danni',
+    networkCouriersLabel: 'Corrieri ufficiali integrati',
+    planStandardTitle: 'Piano Standard',
+    planBasicName: 'Ship24Go Base',
+    planProName: 'Ship24Go Pro',
+    planEnterpriseName: 'Ship24Go Enterprise',
+    planStandardDesc: 'Perfetto per privati e piccoli venditori online.',
+    planStandardFeature1: 'Tariffe corriere negoziate',
+    planStandardFeature2: 'Calcolatore multi-corriere in tempo reale',
+    planStandardFeature3: 'Stampa immediata delle etichette termiche',
+    planStandardFeature4: 'Notifiche automatiche di tracciamento',
+    planProOffer: '10% di sconto su tutte le spedizioni',
+    planProDesc: 'Per attività online in crescita con spedizioni regolari.',
+    planProFeature1: '10% di sconto su ogni spedizione',
+    planProFeature2: 'Avvisi di tracciamento predittivo con IA',
+    planProFeature3: 'Sincronizzazione live Shopify e WooCommerce',
+    planProFeature4: 'Supporto prioritario 24/7',
+    planEnterpriseOffer: '20% di sconto per il massimo risparmio',
+    planEnterpriseDesc: 'Per grandi aziende, marketplace e grossisti.',
+    planEnterpriseFeature1: 'Sconto massimo del 20% sulle spedizioni',
+    planEnterpriseFeature2: 'Sdoganamento assistito e codici HS',
+    planEnterpriseFeature3: 'Account manager dedicato e SLA',
+    planEnterpriseFeature4: 'Webhook REST API illimitati',
+    postalDefault: 'Codice postale',
+    quoteMissingPostal: 'Inserisci i codici postali di origine e destinazione.',
+    quoteNoOptions: 'Nessuna opzione disponibile per questa rotta.',
+    quoteSuccess: 'Tariffe ufficiali in tempo reale con sconti. Accedi per completare la spedizione.',
+    quoteFailed: 'Impossibile calcolare le tariffe. Riprova.',
+    quoteLogin: 'Accedi o registrati per completare l’acquisto con il preventivo selezionato.',
+    footerDestEurope: 'Spagna e Unione Europea',
+    footerDestUSA: 'Stati Uniti',
+    footerDestDO: 'Repubblica Dominicana',
+    footerDestLatam: 'America Latina',
+    footerApiDocs: 'Documentazione API'
   },
   fr: {
     navQuoter: 'Calculateur',
@@ -418,7 +544,49 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     footerRights: 'Tous droits réservés.',
     footerPrivacy: 'Confidentialité',
     footerTerms: 'Conditions',
-    footerSecurity: 'Sécurité'
+    footerSecurity: 'Sécurité',
+    seoTitle: 'Ship24Go | Logistique mondiale et expéditions intelligentes',
+    seoDescription: 'Calculez vos envois, comparez les transporteurs, créez des étiquettes et suivez chaque colis depuis une plateforme mondiale.',
+    trackingPlaceholder: 'Ex : SP24-88492048',
+    optionsFound: 'Options trouvées',
+    networkHeroSuffix: '50+ transporteurs',
+    networkHubsLabel: 'Hubs express',
+    networkHubsDesc: 'Aéroports et centres de distribution',
+    networkInsuranceLabel: 'Assurance cargo',
+    networkInsuranceDesc: 'Couverture contre les pertes ou dommages',
+    networkCouriersLabel: 'Transporteurs officiels intégrés',
+    planStandardTitle: 'Forfait Standard',
+    planBasicName: 'Ship24Go Essentiel',
+    planProName: 'Ship24Go Pro',
+    planEnterpriseName: 'Ship24Go Enterprise',
+    planStandardDesc: 'Idéal pour les particuliers et les petits vendeurs en ligne.',
+    planStandardFeature1: 'Tarifs transporteurs négociés',
+    planStandardFeature2: 'Calculateur multi-transporteurs en temps réel',
+    planStandardFeature3: 'Impression instantanée des étiquettes thermiques',
+    planStandardFeature4: 'Notifications automatiques de suivi',
+    planProOffer: '10 % de remise sur tous les envois',
+    planProDesc: 'Pour les entreprises en croissance avec des expéditions régulières.',
+    planProFeature1: '10 % de remise sur chaque envoi',
+    planProFeature2: 'Alertes de suivi prédictif par IA',
+    planProFeature3: 'Synchronisation Shopify et WooCommerce en direct',
+    planProFeature4: 'Support prioritaire 24/7',
+    planEnterpriseOffer: '20 % de remise pour un maximum d’économies',
+    planEnterpriseDesc: 'Pour les grandes entreprises, marketplaces et grossistes.',
+    planEnterpriseFeature1: 'Remise maximale de 20 % sur les envois',
+    planEnterpriseFeature2: 'Dédouanement assisté et codes HS',
+    planEnterpriseFeature3: 'Account manager dédié et SLA',
+    planEnterpriseFeature4: 'Webhooks REST API illimités',
+    postalDefault: 'Code postal',
+    quoteMissingPostal: 'Saisissez les codes postaux de départ et de destination.',
+    quoteNoOptions: 'Aucune option disponible pour ce trajet.',
+    quoteSuccess: 'Tarifs officiels en temps réel avec remise. Connectez-vous pour finaliser l’envoi.',
+    quoteFailed: 'Impossible de calculer les tarifs. Réessayez.',
+    quoteLogin: 'Connectez-vous ou inscrivez-vous pour finaliser l’achat du devis sélectionné.',
+    footerDestEurope: 'Espagne et Union européenne',
+    footerDestUSA: 'États-Unis',
+    footerDestDO: 'République dominicaine',
+    footerDestLatam: 'Amérique latine',
+    footerApiDocs: 'Documentation API'
   },
   de: {
     navQuoter: 'Versandrechner',
@@ -512,7 +680,49 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     footerRights: 'Alle Rechte vorbehalten.',
     footerPrivacy: 'Datenschutz',
     footerTerms: 'AGB',
-    footerSecurity: 'Sicherheit'
+    footerSecurity: 'Sicherheit',
+    seoTitle: 'Ship24Go | Globale Logistik und intelligenter Versand',
+    seoDescription: 'Versandpreise vergleichen, Etiketten erstellen und jedes Paket über eine globale Logistikplattform verfolgen.',
+    trackingPlaceholder: 'Z. B. SP24-88492048',
+    optionsFound: 'Optionen gefunden',
+    networkHeroSuffix: '50+ Spediteure',
+    networkHubsLabel: 'Express-Hubs',
+    networkHubsDesc: 'Flughäfen und Verteilzentren',
+    networkInsuranceLabel: 'Frachtversicherung',
+    networkInsuranceDesc: 'Schutz vor Verlust oder Schäden',
+    networkCouriersLabel: 'Offiziell integrierte Spediteure',
+    planStandardTitle: 'Standardplan',
+    planBasicName: 'Ship24Go Basic',
+    planProName: 'Ship24Go Pro',
+    planEnterpriseName: 'Ship24Go Enterprise',
+    planStandardDesc: 'Ideal für Privatpersonen und kleine Online-Händler.',
+    planStandardFeature1: 'Verhandelte Spediteurentarife',
+    planStandardFeature2: 'Echtzeit-Multi-Carrier-Rechner',
+    planStandardFeature3: 'Sofortiger Druck von Thermoetiketten',
+    planStandardFeature4: 'Automatische Tracking-Benachrichtigungen',
+    planProOffer: '10 % Rabatt auf alle Sendungen',
+    planProDesc: 'Für wachsende Online-Unternehmen mit regelmäßigen Sendungen.',
+    planProFeature1: '10 % Rabatt auf jede Sendung',
+    planProFeature2: 'KI-gestützte prädiktive Tracking-Alarme',
+    planProFeature3: 'Live-Synchronisierung mit Shopify und WooCommerce',
+    planProFeature4: 'Priorisierter Support rund um die Uhr',
+    planEnterpriseOffer: '20 % Rabatt für maximale Ersparnis',
+    planEnterpriseDesc: 'Für große Unternehmen, Marktplätze und Großhändler.',
+    planEnterpriseFeature1: 'Maximal 20 % Rabatt auf Sendungen',
+    planEnterpriseFeature2: 'Unterstützte Zollabfertigung und HS-Codes',
+    planEnterpriseFeature3: 'Dedizierter Account Manager und SLA',
+    planEnterpriseFeature4: 'Unbegrenzte REST-API-Webhooks',
+    postalDefault: 'Postleitzahl',
+    quoteMissingPostal: 'Bitte geben Sie die Postleitzahlen für Start und Ziel ein.',
+    quoteNoOptions: 'Für diese Route wurden keine Versandoptionen gefunden.',
+    quoteSuccess: 'Echtzeit-Tarife mit offiziellen Rabatten. Melden Sie sich an, um den Versand abzuschließen.',
+    quoteFailed: 'Tarife konnten nicht berechnet werden. Bitte versuchen Sie es erneut.',
+    quoteLogin: 'Melden Sie sich an oder registrieren Sie sich, um den ausgewählten Tarif zu buchen.',
+    footerDestEurope: 'Spanien und Europäische Union',
+    footerDestUSA: 'Vereinigte Staaten',
+    footerDestDO: 'Dominikanische Republik',
+    footerDestLatam: 'Lateinamerika',
+    footerApiDocs: 'API-Dokumentation'
   },
   zh: {
     navQuoter: '运费计算',
@@ -606,7 +816,49 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     footerRights: '版权所有。',
     footerPrivacy: '隐私政策',
     footerTerms: '服务条款',
-    footerSecurity: '安全中心'
+    footerSecurity: '安全中心',
+    seoTitle: 'Ship24Go | 全球智能物流与国际运输',
+    seoDescription: '在线比价、比较物流商、创建面单并从一个全球物流平台追踪每个包裹。',
+    trackingPlaceholder: '例如：SP24-88492048',
+    optionsFound: '找到可用方案',
+    networkHeroSuffix: '50+ 家物流商',
+    networkHubsLabel: '快速枢纽',
+    networkHubsDesc: '机场与配送中心',
+    networkInsuranceLabel: '货物保险',
+    networkInsuranceDesc: '覆盖丢失或损坏风险',
+    networkCouriersLabel: '官方集成物流商',
+    planStandardTitle: '标准方案',
+    planBasicName: 'Ship24Go 基础版',
+    planProName: 'Ship24Go Pro',
+    planEnterpriseName: 'Ship24Go 企业版',
+    planStandardDesc: '适合个人用户和小型线上卖家。',
+    planStandardFeature1: '已协商的承运商价格',
+    planStandardFeature2: '实时多承运商运费计算',
+    planStandardFeature3: '即时打印热敏面单',
+    planStandardFeature4: '自动包裹追踪通知',
+    planProOffer: '所有运单享受 10% 折扣',
+    planProDesc: '适合拥有稳定发货量、正在成长的线上企业。',
+    planProFeature1: '每票运单直享 10% 折扣',
+    planProFeature2: 'AI 预测性追踪提醒',
+    planProFeature3: 'Shopify 与 WooCommerce 实时同步',
+    planProFeature4: '全天候优先客户支持',
+    planEnterpriseOffer: '最高 20% 折扣，节省更多',
+    planEnterpriseDesc: '适合大型企业、平台和批发商。',
+    planEnterpriseFeature1: '运单最高享 20% 折扣',
+    planEnterpriseFeature2: '协助清关与 HS 编码',
+    planEnterpriseFeature3: '专属客户经理与 SLA',
+    planEnterpriseFeature4: '不限量 REST API Webhooks',
+    postalDefault: '邮政编码',
+    quoteMissingPostal: '请填写始发地和目的地的邮政编码。',
+    quoteNoOptions: '未找到适合此路线的物流方案。',
+    quoteSuccess: '实时官方折扣报价。登录后即可完成发货。',
+    quoteFailed: '暂时无法计算运费，请稍后重试。',
+    quoteLogin: '登录或注册后即可使用所选报价完成下单。',
+    footerDestEurope: '西班牙及欧盟',
+    footerDestUSA: '美国',
+    footerDestDO: '多米尼加共和国',
+    footerDestLatam: '拉丁美洲',
+    footerApiDocs: 'API 文档'
   }
 };
 
@@ -626,6 +878,12 @@ export const Landing = () => {
   }, [language]);
 
   const lt = LANDING_TEXTS[langKey] || LANDING_TEXTS.es;
+
+  useEffect(() => {
+    document.title = lt.seoTitle;
+    const description = document.querySelector('meta[name="description"]');
+    if (description) description.setAttribute('content', lt.seoDescription);
+  }, [langKey]);
 
   // Tema
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -691,7 +949,7 @@ export const Landing = () => {
       case 'GB': return 'E.g.: SW1A 1AA London';
       case 'CO': return 'Ej: 110111 Bogotá';
       case 'MX': return 'Ej: 06600 CDMX';
-      default: return langKey === 'en' ? 'Postal / Zip Code' : 'Código Postal';
+       default: return lt.postalDefault;
     }
   };
 
@@ -728,7 +986,7 @@ export const Landing = () => {
     const originZip = String(form.originZip || '').trim();
     const destZip = String(form.destZip || '').trim();
     if (!originZip || !destZip) {
-      setQuoteError(langKey === 'en' ? 'Please fill in both origin and destination zip codes.' : 'Completa los códigos postales de origen y destino.');
+      setQuoteError(lt.quoteMissingPostal);
       setQuotes([]);
       return;
     }
@@ -754,14 +1012,14 @@ export const Landing = () => {
       const next = Array.isArray(res?.quotes) ? res.quotes : [];
       setQuotes(next);
       if (!next.length) {
-        setQuoteError(res?.message || res?.error || (langKey === 'en' ? 'No courier options found for this specific route.' : 'No encontramos opciones para esta ruta.'));
+        setQuoteError(res?.message || res?.error || lt.quoteNoOptions);
       } else {
-        setQuoteMessage(langKey === 'en' ? 'Real-time quotes with official carrier discounts. Login to complete dispatch.' : 'Precios públicos oficiales con descuento. Inicia sesión para emitir la etiqueta.');
+        setQuoteMessage(lt.quoteSuccess);
       }
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
     } catch (err: any) {
       setQuotes([]);
-      setQuoteError(err?.message || (langKey === 'en' ? 'Could not calculate rates. Please try again.' : 'No se pudo cotizar ahora. Intenta de nuevo.'));
+      setQuoteError(err?.message || lt.quoteFailed);
     } finally {
       setLoadingQuote(false);
     }
@@ -797,7 +1055,7 @@ export const Landing = () => {
         },
         guestQuote: quote,
         guestToken: session.token,
-        message: langKey === 'en' ? 'Log in or sign up to finalize your booking with the selected quote.' : 'Inicia sesión o regístrate para comprar la etiqueta con el precio cotizado.',
+        message: lt.quoteLogin,
       },
     });
   };
@@ -1236,7 +1494,7 @@ export const Landing = () => {
                           type="text"
                           value={trackingCode}
                           onChange={(e) => setTrackingCode(e.target.value)}
-                          placeholder={langKey === 'en' ? 'E.g. SP24-88492048' : 'Ej: SP24-88492048'}
+                          placeholder={lt.trackingPlaceholder}
                           className="w-full h-12 pl-11 pr-4 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-semibold dark:text-white outline-none focus:border-indigo-500"
                         />
                         <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-3.5" />
@@ -1265,7 +1523,7 @@ export const Landing = () => {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center max-w-2xl mx-auto mb-8">
               <span className="text-xs font-extrabold uppercase tracking-widest text-indigo-600 dark:text-cyan-400">
-                {quotes.length} {langKey === 'en' ? 'Options Found' : 'Opciones Encontradas'}
+                {quotes.length} {lt.optionsFound}
               </span>
               <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white mt-1">
                 {lt.resultsTitle}
@@ -1324,52 +1582,52 @@ export const Landing = () => {
       )}
 
       {/* GLOBO 3D INTERACTIVO CON RED LOGÍSTICA MUNDIAL */}
-      <section className="py-16 md:py-24 bg-slate-950 text-white relative overflow-hidden">
+      <section className="py-16 md:py-24 bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-white border-y border-slate-200 dark:border-slate-900 relative overflow-hidden transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="text-center max-w-3xl mx-auto mb-12">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-bold uppercase tracking-wider mb-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-50 dark:bg-cyan-500/10 border border-cyan-200 dark:border-cyan-500/20 text-cyan-700 dark:text-cyan-400 text-xs font-bold uppercase tracking-wider mb-4">
               <Globe className="w-3.5 h-3.5" />
               <span>{lt.networkTitle}</span>
             </div>
             <h2 className="text-3xl md:text-5xl font-black tracking-tight">
               {lt.heroTitle1}{' '}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-indigo-400">
-                50+ Couriers
+                 {lt.networkHeroSuffix}
               </span>
             </h2>
-            <p className="text-slate-400 text-sm md:text-base mt-4 max-w-xl mx-auto">
+            <p className="text-slate-600 dark:text-slate-400 text-sm md:text-base mt-4 max-w-xl mx-auto">
               {lt.networkSubtitle}
             </p>
           </div>
 
-          <div className="relative rounded-3xl border border-slate-800 bg-[#020617] overflow-hidden p-6 md:p-12 shadow-2xl flex flex-col lg:flex-row items-center justify-between gap-8">
+          <div className="relative rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#020617] overflow-hidden p-6 md:p-12 shadow-xl shadow-slate-300/40 dark:shadow-2xl flex flex-col lg:flex-row items-center justify-between gap-8 transition-colors">
             <div className="w-full lg:w-1/2 space-y-6">
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-2 text-cyan-400 mb-1">
                     <Truck className="w-4 h-4" />
-                    <span className="text-xs font-bold uppercase">{langKey === 'en' ? 'Express Hubs' : 'Hubs Exprés'}</span>
+                    <span className="text-xs font-bold uppercase">{lt.networkHubsLabel}</span>
                   </div>
-                  <p className="text-xl font-black text-white">450+</p>
-                  <p className="text-xs text-slate-400 mt-1">{langKey === 'en' ? 'Airports and distribution centers' : 'Centros de distribución aérea y terrestre'}</p>
+                  <p className="text-xl font-black text-slate-900 dark:text-white">450+</p>
+                   <p className="text-xs text-slate-400 dark:text-slate-400 mt-1">{lt.networkHubsDesc}</p>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800">
                   <div className="flex items-center gap-2 text-indigo-400 mb-1">
                     <Shield className="w-4 h-4" />
-                    <span className="text-xs font-bold uppercase">{langKey === 'en' ? 'Cargo Insurance' : 'Seguro de Carga'}</span>
+                    <span className="text-xs font-bold uppercase">{lt.networkInsuranceLabel}</span>
                   </div>
-                  <p className="text-xl font-black text-white">100%</p>
-                  <p className="text-xs text-slate-400 mt-1">{langKey === 'en' ? 'Coverage against loss or damages' : 'Protección total ante extravíos'}</p>
+                  <p className="text-xl font-black text-slate-900 dark:text-white">100%</p>
+                   <p className="text-xs text-slate-400 dark:text-slate-400 mt-1">{lt.networkInsuranceDesc}</p>
                 </div>
               </div>
 
               {/* Badges de Transportistas Conectados */}
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">{langKey === 'en' ? 'Official Integrated Couriers' : 'Transportistas Oficiales Integrados'}</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">{lt.networkCouriersLabel}</p>
                 <div className="flex flex-wrap gap-2">
                   {['DHL Express', 'FedEx', 'UPS Global', 'Correos España', 'SEUR', 'GLS', 'TNT', 'MRW'].map(c => (
-                    <span key={c} className="px-3 py-1.5 rounded-lg bg-slate-800/80 text-slate-300 text-xs font-semibold border border-slate-700">
+                    <span key={c} className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 text-xs font-semibold border border-slate-200 dark:border-slate-700">
                       {c}
                     </span>
                   ))}
@@ -1456,11 +1714,11 @@ export const Landing = () => {
             <div className="rounded-3xl p-8 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col justify-between hover:border-slate-400 transition-all">
               <div>
                 <div className="inline-block px-3 py-1 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold uppercase mb-4">
-                  {langKey === 'en' ? 'Standard Plan' : 'Plan Estándar'}
+                  {lt.planStandardTitle}
                 </div>
-                <h3 className="text-2xl font-black text-slate-900 dark:text-white">Ship24Go Básico</h3>
+                <h3 className="text-2xl font-black text-slate-900 dark:text-white">{lt.planBasicName}</h3>
                 <p className="text-xs text-slate-500 mt-1 mb-6">
-                  {langKey === 'en' ? 'Perfect for individuals and small online sellers.' : 'Ideal para particulares y pequeños vendedores ecommerce.'}
+                  {lt.planStandardDesc}
                 </p>
 
                 <div className="flex items-baseline gap-1 mb-6">
@@ -1469,10 +1727,10 @@ export const Landing = () => {
                 </div>
 
                 <ul className="space-y-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 mb-8">
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {langKey === 'en' ? 'Negotiated carrier rates' : 'Tarifas estándar negociadas'}</li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {langKey === 'en' ? 'Real-time multi-carrier calculator' : 'Cotizador multi-courier en vivo'}</li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {langKey === 'en' ? 'Instant thermal label printing' : 'Descarga de etiquetas al instante'}</li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {langKey === 'en' ? 'Automated tracking notifications' : 'Seguimiento automatizado de paquetes'}</li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {lt.planStandardFeature1}</li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {lt.planStandardFeature2}</li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {lt.planStandardFeature3}</li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {lt.planStandardFeature4}</li>
                 </ul>
               </div>
 
@@ -1492,11 +1750,11 @@ export const Landing = () => {
 
               <div>
                 <div className="inline-block px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-cyan-400 text-xs font-bold uppercase mb-4">
-                  10% OFF {langKey === 'en' ? 'on all shipments' : 'en todos los envíos'}
+                   {lt.planProOffer}
                 </div>
-                <h3 className="text-2xl font-black text-slate-900 dark:text-white">Ship24Go Pro</h3>
+                <h3 className="text-2xl font-black text-slate-900 dark:text-white">{lt.planProName}</h3>
                 <p className="text-xs text-slate-500 mt-1 mb-6">
-                  {langKey === 'en' ? 'For scaling online businesses with regular dispatches.' : 'Para comercios en crecimiento que buscan el mayor ahorro.'}
+                   {lt.planProDesc}
                 </p>
 
                 <div className="flex items-baseline gap-1 mb-6">
@@ -1505,10 +1763,10 @@ export const Landing = () => {
                 </div>
 
                 <ul className="space-y-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 mb-8">
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> <strong className="text-indigo-600 dark:text-cyan-400">10% {langKey === 'en' ? 'discount on every shipment' : 'descuento directo en envíos'}</strong></li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {langKey === 'en' ? 'AI Predictive tracking alerts' : 'Rastreo predictivo con IA'}</li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {langKey === 'en' ? 'Shopify & WooCommerce live sync' : 'Sincronización de tiendas Shopify/Woo'}</li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {langKey === 'en' ? '24/7 priority customer support' : 'Soporte prioritario 24/7'}</li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> <strong className="text-indigo-600 dark:text-cyan-400">{lt.planProFeature1}</strong></li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {lt.planProFeature2}</li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {lt.planProFeature3}</li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {lt.planProFeature4}</li>
                 </ul>
               </div>
 
@@ -1524,11 +1782,11 @@ export const Landing = () => {
             <div className="rounded-3xl p-8 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex flex-col justify-between hover:border-slate-400 transition-all">
               <div>
                 <div className="inline-block px-3 py-1 rounded-full bg-cyan-50 dark:bg-cyan-950/60 text-cyan-600 dark:text-cyan-400 text-xs font-bold uppercase mb-4">
-                  20% OFF {langKey === 'en' ? 'maximum savings' : 'máximo ahorro'}
+                   {lt.planEnterpriseOffer}
                 </div>
-                <h3 className="text-2xl font-black text-slate-900 dark:text-white">Ship24Go Enterprise</h3>
+                <h3 className="text-2xl font-black text-slate-900 dark:text-white">{lt.planEnterpriseName}</h3>
                 <p className="text-xs text-slate-500 mt-1 mb-6">
-                  {langKey === 'en' ? 'For large enterprises, marketplaces, and wholesalers.' : 'Para grandes empresas, almacenes y altos volúmenes.'}
+                   {lt.planEnterpriseDesc}
                 </p>
 
                 <div className="flex items-baseline gap-1 mb-6">
@@ -1537,10 +1795,10 @@ export const Landing = () => {
                 </div>
 
                 <ul className="space-y-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300 mb-8">
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> <strong className="text-cyan-500">20% {langKey === 'en' ? 'maximum discount on shipments' : 'descuento máximo en envíos'}</strong></li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {langKey === 'en' ? 'Assisted customs clearance & HS codes' : 'Despacho aduanero asistido'}</li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {langKey === 'en' ? 'Dedicated account manager & SLA' : 'Account Manager dedicado y SLA'}</li>
-                  <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {langKey === 'en' ? 'Unlimited REST API webhooks' : 'Webhooks y acceso API sin límite'}</li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> <strong className="text-cyan-500">{lt.planEnterpriseFeature1}</strong></li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {lt.planEnterpriseFeature2}</li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {lt.planEnterpriseFeature3}</li>
+                   <li className="flex items-center gap-2"><Check className="w-4 h-4 text-emerald-500 shrink-0" /> {lt.planEnterpriseFeature4}</li>
                 </ul>
               </div>
 
@@ -1726,10 +1984,10 @@ function Footer({ brandName, lt, brand }: { brandName: string; lt: Record<string
           <div>
             <h4 className="text-xs uppercase font-bold text-slate-300 tracking-wider mb-3">{lt.footerDestinations}</h4>
             <ul className="space-y-2.5 text-xs text-slate-400">
-              <li><span className="text-slate-400">España & Unión Europea</span></li>
-              <li><span className="text-slate-400">Estados Unidos</span></li>
-              <li><span className="text-slate-400">República Dominicana</span></li>
-              <li><span className="text-slate-400">América Latina</span></li>
+              <li><span className="text-slate-400">{lt.footerDestEurope}</span></li>
+              <li><span className="text-slate-400">{lt.footerDestUSA}</span></li>
+              <li><span className="text-slate-400">{lt.footerDestDO}</span></li>
+              <li><span className="text-slate-400">{lt.footerDestLatam}</span></li>
             </ul>
           </div>
 
@@ -1739,7 +1997,7 @@ function Footer({ brandName, lt, brand }: { brandName: string; lt: Record<string
               <li><Link to="/auth/login" className="hover:text-white transition-colors">{lt.btnLogin}</Link></li>
               <li><Link to="/auth/register" className="hover:text-white transition-colors">{lt.btnRegister}</Link></li>
               <li><span className="text-slate-400">{lt.footerSecurity}</span></li>
-              <li><span className="text-slate-400">API Docs</span></li>
+              <li><span className="text-slate-400">{lt.footerApiDocs}</span></li>
             </ul>
           </div>
         </div>

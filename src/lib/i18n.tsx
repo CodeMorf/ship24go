@@ -1570,15 +1570,11 @@ Object.entries(bankWalletCopy).forEach(([locale, copy]) => {
 });
 export const availableLanguages: Array<{ code: Language; label: string; short: string; flag: string; flagUrl: string; countryCode: string }> = [
   { code: 'es', label: 'Español', short: 'ES', flag: '🇪🇸', flagUrl: 'https://flagsapi.com/ES/flat/32.png', countryCode: 'ES' },
-  { code: 'es-DO', label: 'Español (RD)', short: 'DO', flag: '🇩🇴', flagUrl: 'https://flagsapi.com/DO/flat/32.png', countryCode: 'DO' },
-  { code: 'es-CO', label: 'Español (CO)', short: 'CO', flag: '🇨🇴', flagUrl: 'https://flagsapi.com/CO/flat/32.png', countryCode: 'CO' },
-  { code: 'es-EC', label: 'Español (EC)', short: 'EC', flag: '🇪🇨', flagUrl: 'https://flagsapi.com/EC/flat/32.png', countryCode: 'EC' },
   { code: 'en', label: 'English', short: 'EN', flag: '🇬🇧', flagUrl: 'https://flagsapi.com/GB/flat/32.png', countryCode: 'GB' },
   { code: 'it', label: 'Italiano', short: 'IT', flag: '🇮🇹', flagUrl: 'https://flagsapi.com/IT/flat/32.png', countryCode: 'IT' },
   { code: 'fr', label: 'Français', short: 'FR', flag: '🇫🇷', flagUrl: 'https://flagsapi.com/FR/flat/32.png', countryCode: 'FR' },
   { code: 'de', label: 'Deutsch', short: 'DE', flag: '🇩🇪', flagUrl: 'https://flagsapi.com/DE/flat/32.png', countryCode: 'DE' },
-  { code: 'zh', label: '中文', short: 'ZH', flag: '🇨🇳', flagUrl: 'https://flagsapi.com/CN/flat/32.png', countryCode: 'CN' },
-  { code: 'ht', label: 'Kreyòl', short: 'HT', flag: '🇭🇹', flagUrl: 'https://flagsapi.com/HT/flat/32.png', countryCode: 'HT' }
+  { code: 'zh', label: '中文', short: 'ZH', flag: '🇨🇳', flagUrl: 'https://flagsapi.com/CN/flat/32.png', countryCode: 'CN' }
 ];
 
 const normalizeLanguage = (value: any): Language | null => {
