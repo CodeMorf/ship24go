@@ -65,7 +65,24 @@ CREATE TABLE IF NOT EXISTS point_operations (
   INDEX idx_point_operations_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-ALTER TABLE shipments ADD COLUMN IF NOT EXISTS point_id CHAR(36) NULL;
+-- MySQL 8 does not support ALTER TABLE ... ADD COLUMN IF NOT EXISTS.
+-- Use a metadata check plus a prepared statement so this remains idempotent
+-- on the MySQL version used by production and when re-run by initDb.
+SET @point_id_exists := (
+  SELECT COUNT(*)
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'shipments'
+    AND COLUMN_NAME = 'point_id'
+);
+SET @point_id_alter := IF(
+  @point_id_exists = 0,
+  'ALTER TABLE shipments ADD COLUMN point_id CHAR(36) NULL',
+  'SELECT 1'
+);
+PREPARE point_id_stmt FROM @point_id_alter;
+EXECUTE point_id_stmt;
+DEALLOCATE PREPARE point_id_stmt;
 
 INSERT IGNORE INTO point_products (id, code, name, description, base_price, commission_percent, currency, is_active, sort_order)
 VALUES
