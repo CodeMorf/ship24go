@@ -159,6 +159,8 @@ export const api = {
   replyTicket: (id: string, data: any) => fetchAPI(`/tickets/${id}/reply`, { method: 'POST', body: JSON.stringify(data) }),
   aiSuggestReply: (id: string, lang: string) => fetchAPI(`/tickets/${id}/ai-suggest`, { method: 'POST', body: JSON.stringify({ lang }) }),
   resolveTicket: (id: string) => fetchAPI(`/tickets/${id}/resolve`, { method: 'POST' }),
+  reopenTicket: (id: string) => fetchAPI(`/tickets/${id}/reopen`, { method: 'POST' }),
+  closeCopilotTicket: (conversationId: string) => fetchAPI('/copilot/close-ticket', { method: 'POST', body: JSON.stringify({ conversationId }) }),
   adminApproveCancellation: (id: string, data: any = {}) => fetchAPI(`/admin/cancellation-requests/${id}/approve`, { method: 'POST', body: JSON.stringify(data) }),
   adminRejectCancellation: (id: string, data: any = {}) => fetchAPI(`/admin/cancellation-requests/${id}/reject`, { method: 'POST', body: JSON.stringify(data) }),
   aiChat: (message: string, history: any[], lang: string) => fetchAPI('/ai/chat', { method: 'POST', body: JSON.stringify({ message, history, lang }) }),

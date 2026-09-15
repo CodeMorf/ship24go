@@ -14203,9 +14203,55 @@ async function handleCopilotMessage(req: any, res: any) {
   const conversation = await getOrCreateCopilotConversation(req.user.id, language, conversationId);
   await saveCopilotMessage(conversation, req.user.id, 'user', cleanMessage);
 
+  // GESTIÓN DEL CICLO DE TICKET:
+  // Verificar si la conversación ya tiene un ticket activo y abierto.
+  let currentTicket: any = null;
+  const [convRows]: any = await pool.query(
+    'SELECT ticket_id, status FROM ai_conversations WHERE id = ? LIMIT 1',
+    [conversation]
+  );
+  let currentTicketId = convRows[0]?.ticket_id;
+  if (currentTicketId) {
+    currentTicket = await TicketRepo.getById(currentTicketId);
+    // Si el ticket fue cerrado/resuelto previamente, se inicia un nuevo ciclo para la nueva consulta
+    if (currentTicket && (currentTicket.status === 'resolved' || currentTicket.status === 'closed')) {
+      currentTicket = null;
+      currentTicketId = null;
+    }
+  }
+
+  // Si no hay ticket activo (primera vez o consulta anterior cerrada), creamos el ticket la primera vez
+  if (!currentTicket) {
+    const newTicketId = generateId('tkt_');
+    const cleanSubject = cleanMessage.length > 55 ? `${cleanMessage.slice(0, 55)}...` : cleanMessage;
+    const ticketSubject = `Chat Soporte: ${cleanSubject}`;
+    
+    await TicketRepo.create({
+      id: newTicketId,
+      user_id: req.user.id,
+      subject: ticketSubject,
+      category: 'chat_soporte',
+      description: `Consulta iniciada vía Chat de Soporte / Copiloto:\n\n"${cleanMessage}"`,
+      tracking_code: '',
+      status: 'open'
+    });
+
+    await pool.query('UPDATE ai_conversations SET ticket_id = ?, status = ? WHERE id = ?', [newTicketId, 'open', conversation]);
+    currentTicketId = newTicketId;
+    currentTicket = await TicketRepo.getById(newTicketId);
+  } else {
+    // Si ya existe un ticket abierto, registramos este mensaje del cliente en el historial del ticket
+    await TicketRepo.addReply({
+      id: generateId('rep_'),
+      ticket_id: currentTicketId,
+      sender_user_id: req.user.id,
+      sender_role: 'customer',
+      message: cleanMessage
+    });
+  }
+
   let responseText = '';
   let escalated = false;
-  let ticket: any = null;
 
   try {
     const context = await buildCopilotContext(req, Number(aiSettings.maxContextRecords || 20));
@@ -14239,16 +14285,32 @@ Answer the customer now. If the context does not contain enough reliable informa
     escalated = true;
   }
 
-  if (escalated && aiSettings.autoTicket !== false) {
-    ticket = await createCopilotHumanTicket(req, conversation, language, cleanMessage, history || [], 'needs_human_support').catch((err) => {
-      console.warn('[AI Copilot] Could not create handoff ticket.');
-      return null;
-    });
-    responseText = responseText || copilotText(language, 'ticketCreated');
+  if (escalated) {
+    // Actualizar estado a handoff si la IA requirió intervención humana
+    await pool.query('UPDATE ai_conversations SET status = "human_handoff" WHERE id = ?', [conversation]);
   }
 
+  // Guardar mensaje en el historial del copilot
   await saveCopilotMessage(conversation, null, 'assistant', responseText);
-  res.json({ success: true, response: responseText, conversationId: conversation, escalated, ticket: ticket ? { id: ticket.id, subject: ticket.subject, status: ticket.status } : null });
+
+  // Y sincronizar la respuesta de la IA dentro de ticket_replies para que el Admin en /admin/tickets lo vea en tiempo real
+  if (currentTicketId) {
+    await TicketRepo.addReply({
+      id: generateId('rep_'),
+      ticket_id: currentTicketId,
+      sender_user_id: null,
+      sender_role: 'system',
+      message: responseText
+    });
+  }
+
+  res.json({
+    success: true,
+    response: responseText,
+    conversationId: conversation,
+    escalated,
+    ticket: currentTicket ? { id: currentTicket.id, subject: currentTicket.subject, status: currentTicket.status } : null
+  });
 }
 
 
@@ -14480,6 +14542,14 @@ app.post('/api/tickets/:id/reply', authMiddleware, async (req: any, res) => {
       message
     });
 
+    // Sincronizar también con la conversación de IA si el ticket nació del chat
+    try {
+      const [convs]: any = await pool.query('SELECT id FROM ai_conversations WHERE ticket_id = ? LIMIT 1', [ticket.id]);
+      if (convs.length > 0) {
+        await saveCopilotMessage(convs[0].id, req.user.id, req.user.role === 'super_admin' ? 'assistant' : 'user', message);
+      }
+    } catch {}
+
     const updatedTicket = await TicketRepo.getById(ticket.id);
     const reply = updatedTicket.replies[updatedTicket.replies.length - 1];
 
@@ -14509,7 +14579,7 @@ app.post('/api/tickets/:id/ai-suggest', authMiddleware, async (req: any, res) =>
   }
 });
 
-// Resolver ticket
+// Resolver y cerrar ticket
 app.post('/api/tickets/:id/resolve', authMiddleware, async (req: any, res) => {
   try {
     const ticket = await TicketRepo.getById(req.params.id);
@@ -14522,11 +14592,79 @@ app.post('/api/tickets/:id/resolve', authMiddleware, async (req: any, res) => {
     }
 
     await TicketRepo.resolve(ticket.id);
-    const updated = await TicketRepo.getById(ticket.id);
+    try {
+      await pool.query('UPDATE ai_conversations SET status = "resolved" WHERE ticket_id = ?', [ticket.id]);
+      await TicketRepo.addReply({
+        id: generateId('rep_'),
+        ticket_id: ticket.id,
+        sender_user_id: req.user.id,
+        sender_role: req.user.role === 'super_admin' ? 'super_admin' : 'system',
+        message: 'Incidencia marcada como resuelta y cerrada.'
+      });
+    } catch {}
 
+    const updated = await TicketRepo.getById(ticket.id);
     res.json({ success: true, ticket: updated });
   } catch (error) {
     res.status(500).json({ error: 'No se pudo resolver el ticket.' });
+  }
+});
+
+// Reabrir ticket
+app.post('/api/tickets/:id/reopen', authMiddleware, async (req: any, res) => {
+  try {
+    const ticket = await TicketRepo.getById(req.params.id);
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket no encontrado.' });
+    }
+
+    if (req.user.role !== 'super_admin' && ticket.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'Acceso denegado.' });
+    }
+
+    await TicketRepo.reopen(ticket.id);
+    try {
+      await pool.query('UPDATE ai_conversations SET status = "open" WHERE ticket_id = ?', [ticket.id]);
+      await TicketRepo.addReply({
+        id: generateId('rep_'),
+        ticket_id: ticket.id,
+        sender_user_id: req.user.id,
+        sender_role: req.user.role === 'super_admin' ? 'super_admin' : 'customer',
+        message: 'Ticket reabierto para continuar el seguimiento.'
+      });
+    } catch {}
+
+    const updated = await TicketRepo.getById(ticket.id);
+    res.json({ success: true, ticket: updated });
+  } catch (error) {
+    res.status(500).json({ error: 'No se pudo reabrir el ticket.' });
+  }
+});
+
+// Endpoint para cerrar consulta de chat desde el cliente
+app.post('/api/copilot/close-ticket', authMiddleware, async (req: any, res) => {
+  try {
+    const { conversationId } = req.body || {};
+    const [rows]: any = await pool.query(
+      'SELECT ticket_id FROM ai_conversations WHERE id = ? AND user_id = ? LIMIT 1',
+      [conversationId, req.user.id]
+    );
+    if (rows.length && rows[0].ticket_id) {
+      const ticketId = rows[0].ticket_id;
+      await TicketRepo.resolve(ticketId);
+      await pool.query('UPDATE ai_conversations SET status = "resolved" WHERE id = ?', [conversationId]);
+      await TicketRepo.addReply({
+        id: generateId('rep_'),
+        ticket_id: ticketId,
+        sender_user_id: req.user.id,
+        sender_role: 'customer',
+        message: 'El usuario ha indicado que la consulta fue resuelta y cerró el ticket.'
+      });
+      return res.json({ success: true, message: 'Ticket cerrado correctamente.' });
+    }
+    res.json({ success: true, message: 'No hay ticket activo.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'No se pudo cerrar el ticket.' });
   }
 });
 
