@@ -93,7 +93,14 @@ export async function initDb() {
         ) ON DUPLICATE KEY UPDATE status = 'approved', updated_at = NOW()`,
         [actualUserId]
       );
-      console.log('[MySQL] Boston Point sembrado y activado con éxito.');
+      await pool.query(
+        `INSERT IGNORE INTO point_products (id, code, name, description, base_price, commission_percent, currency, is_active, sort_order)
+         VALUES
+           ('pp_us_envelope', 'us_envelope', 'Sobre Express / Documents', 'Sobres, cartas y documentos urgentes', 8.00, 15.000, 'USD', 1, 1),
+           ('pp_us_package', 'us_package', 'Paquete Estándar / Parcel', 'Cajas y paquetes hasta 5 kg', 18.00, 10.000, 'USD', 1, 2),
+           ('pp_us_box', 'us_box', 'Caja Grande / Heavy Parcel', 'Paquetes de mayor volumen hasta 20 kg', 35.00, 8.000, 'USD', 1, 3)`
+      );
+      console.log('[MySQL] Boston Point y productos USD sembrados con éxito.');
     }
   } catch (err: any) {
     console.warn('[MySQL] Advertencia sembrando Boston Point:', err?.message || err);

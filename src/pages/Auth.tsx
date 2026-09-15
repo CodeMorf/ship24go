@@ -160,6 +160,8 @@ const Login = () => {
 
       if (res.user.role === 'super_admin') {
         navigate('/admin');
+      } else if (res.user.role === 'point') {
+        navigate('/point');
       } else {
         const next = resolvePostAuthNavigation(location.state);
         navigate(next.path, next.state ? { state: next.state } : undefined);

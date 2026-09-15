@@ -5492,6 +5492,8 @@ const authMiddleware = async (req: any, res: any, next: any) => {
     }
 
     const permissions = await TeamRepo.getUserPermissions(user.id);
+    const point = await PointRepo.getByUserId(user.id);
+    const effectiveRole = point ? 'point' : (user.role || decoded.role || 'customer');
 
     // Normalizar estructura de campos booleanos y JSON para que coincidan con el código frontend
     req.user = {
@@ -5501,8 +5503,10 @@ const authMiddleware = async (req: any, res: any, next: any) => {
       name: user.name,
       phone: user.phone,
       country: user.country,
-      currency: normalizeCurrencyCode(user.currency || 'EUR'),
-      role: user.role,
+      currency: normalizeCurrencyCode(point?.currency || user.currency || 'USD'),
+      role: effectiveRole,
+      hasPoint: Boolean(point),
+      pointId: point?.id || null,
       businessType: user.business_type,
       balance: Number(user.balance),
       status: user.status || 'active',
@@ -5778,7 +5782,9 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const permissions = await TeamRepo.getUserPermissions(user.id);
-    const token = generateToken({ userId: user.id, role: user.role });
+    const point = await PointRepo.getByUserId(user.id);
+    const effectiveRole = point ? 'point' : (user.role || 'customer');
+    const token = generateToken({ userId: user.id, role: effectiveRole });
     
     res.json({
       user: {
@@ -5786,8 +5792,10 @@ app.post('/api/auth/login', async (req, res) => {
         email: user.email,
         permissions,
         name: user.name,
-        role: user.role,
-        currency: normalizeCurrencyCode(user.currency || 'EUR'),
+        role: effectiveRole,
+        hasPoint: Boolean(point),
+        pointId: point?.id || null,
+        currency: normalizeCurrencyCode(point?.currency || user.currency || 'USD'),
         status: user.status || 'active',
         balance: Number(user.balance),
         businessType: user.business_type,
