@@ -1084,7 +1084,7 @@ export const Landing = () => {
             </Link>
 
             {/* Desktop Nav Links - Con whitespace-nowrap para que nunca se quiebre en dos líneas */}
-            <div className="hidden xl:flex flex-1 min-w-0 items-center justify-center gap-4 xl:gap-5 font-semibold text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
+            <div className="hidden xl:flex flex-1 min-w-0 items-center justify-start gap-3 xl:gap-4 font-semibold text-[13px] text-slate-600 dark:text-slate-300 whitespace-nowrap">
               <a href="#quote-section" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navQuoter}</a>
               <Link to="/tracking" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navTracking}</Link>
               <a href="#features-section" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navServices}</a>
