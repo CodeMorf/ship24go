@@ -2726,12 +2726,11 @@ const CustomerSettings = () => {
         </div>
         <div className="glass-panel rounded-2xl p-5 border border-gray-200 dark:border-gray-800">
           <label className="block text-xs font-black text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Apariencia</label>
-          <select defaultValue={localStorage.getItem('theme') || 'system'} onChange={(e) => { localStorage.setItem('theme', e.target.value); window.dispatchEvent(new Event('ship24go-theme-change')); }} className="input-dynamic font-bold">
-            <option value="system">Automático</option>
+          <select defaultValue={localStorage.getItem('theme') === 'dark' ? 'dark' : 'light'} onChange={(e) => { localStorage.setItem('theme', e.target.value); window.dispatchEvent(new Event('ship24go-theme-change')); }} className="input-dynamic font-bold">
             <option value="light">Claro</option>
             <option value="dark">Oscuro</option>
           </select>
-          <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-2">Modo claro, oscuro o según el dispositivo.</p>
+          <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-2">El modo claro es el principal; el oscuro queda como opción manual.</p>
         </div>
       </div>
 
@@ -3149,8 +3148,7 @@ export default function CustomerPanel() {
   const [isDark, setIsDark] = useState(() => {
     const stored = localStorage.getItem('theme');
     if (stored === 'dark') return true;
-    if (stored === 'light') return false;
-    return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+    return false;
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [profile, setProfile] = useState<any>(null);
@@ -3169,8 +3167,9 @@ export default function CustomerPanel() {
 
   useEffect(() => {
     const applyTheme = () => {
-      const stored = localStorage.getItem('theme') || 'system';
-      const nextDark = stored === 'dark' || (stored === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+      const stored = localStorage.getItem('theme') || 'light';
+      const nextDark = stored === 'dark';
+      if (stored !== 'dark' && stored !== 'light') localStorage.setItem('theme', 'light');
       setIsDark(nextDark);
       document.documentElement.classList.toggle('dark', nextDark);
       document.documentElement.dataset.theme = nextDark ? 'dark' : 'light';
@@ -3179,11 +3178,8 @@ export default function CustomerPanel() {
     };
     applyTheme();
     window.addEventListener('ship24go-theme-change', applyTheme);
-    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
-    media?.addEventListener?.('change', applyTheme);
     return () => {
       window.removeEventListener('ship24go-theme-change', applyTheme);
-      media?.removeEventListener?.('change', applyTheme);
     };
   }, []);
 

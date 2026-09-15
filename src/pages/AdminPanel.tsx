@@ -3169,8 +3169,7 @@ export default function AdminPanel() {
   const [isDark, setIsDark] = useState(() => {
     const stored = localStorage.getItem('theme');
     if (stored === 'dark') return true;
-    if (stored === 'light') return false;
-    return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+    return false;
   });
 
   useEffect(() => {
@@ -3206,8 +3205,9 @@ export default function AdminPanel() {
 
   useEffect(() => {
     const applyTheme = () => {
-      const stored = localStorage.getItem('theme') || 'system';
-      const nextDark = stored === 'dark' || (stored === 'system' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+      const stored = localStorage.getItem('theme') || 'light';
+      const nextDark = stored === 'dark';
+      if (stored !== 'dark' && stored !== 'light') localStorage.setItem('theme', 'light');
       setIsDark(nextDark);
       document.documentElement.classList.toggle('dark', nextDark);
       document.documentElement.dataset.theme = nextDark ? 'dark' : 'light';
@@ -3216,11 +3216,8 @@ export default function AdminPanel() {
     };
     applyTheme();
     window.addEventListener('ship24go-theme-change', applyTheme);
-    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
-    media?.addEventListener?.('change', applyTheme);
     return () => {
       window.removeEventListener('ship24go-theme-change', applyTheme);
-      media?.removeEventListener?.('change', applyTheme);
     };
   }, []);
 

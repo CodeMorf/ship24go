@@ -629,8 +629,7 @@ export const Landing = () => {
 
   // Tema
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    return localStorage.getItem('theme') === 'dark' || 
-      (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+    return localStorage.getItem('theme') === 'dark';
   });
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
