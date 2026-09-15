@@ -51,6 +51,19 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     navServices: 'Servicios',
     navDestinations: 'Destinos Globales',
     navPricing: 'Planes & Tarifas',
+    navPoint: 'Red Points',
+    navPointRegister: 'Registrar mi Comercio (Point)',
+    pointSectionBadge: '🏪 Red de Comercios Afiliados',
+    pointSectionTitle: 'Convierte tu comercio en un Ship24Go Point oficial',
+    pointSectionSubtitle: 'Atrae clientes a tu local físico, emite documentos, sobres y paquetes con tracking oficial de Ship24Go y gana comisiones por cada operación.',
+    pointFeature1Title: 'Ubicación Verificada con Google Maps',
+    pointFeature1Desc: 'Los clientes de tu zona te encontrarán fácilmente en el mapa interactivo para enviar y recoger.',
+    pointFeature2Title: 'Comisiones Directas en Cada Envío',
+    pointFeature2Desc: 'Genera ingresos recurrentes por cada pieza recibida o enviada, con ledger auditable.',
+    pointFeature3Title: 'Operativa Digital en 1 Clic',
+    pointFeature3Desc: 'Emisión rápida de recibos, etiquetas térmicas y trazabilidad unificada para el cliente final.',
+    pointCtaRegister: 'Registrar mi Comercio (Point)',
+    pointCtaLogin: 'Acceso a Panel de Point',
     btnLogin: 'Ingresar',
     btnRegister: 'Registrarse',
     btnDashboard: 'Ir a Mi Panel',
@@ -187,6 +200,19 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     navServices: 'Services',
     navDestinations: 'Global Destinations',
     navPricing: 'Plans & Pricing',
+    navPoint: 'Points Network',
+    navPointRegister: 'Register My Store (Point)',
+    pointSectionBadge: '🏪 Affiliate Store Network',
+    pointSectionTitle: 'Turn your business into an official Ship24Go Point',
+    pointSectionSubtitle: 'Attract foot traffic to your physical store, accept and dispatch parcels with official tracking, and earn commissions on every shipment.',
+    pointFeature1Title: 'Google Maps Verified Location',
+    pointFeature1Desc: 'Nearby customers easily locate your store on the interactive map to send and collect parcels.',
+    pointFeature2Title: 'Direct Shipping Commissions',
+    pointFeature2Desc: 'Generate recurring revenue on every parcel handled, supported by an auditable financial ledger.',
+    pointFeature3Title: '1-Click Digital Operations',
+    pointFeature3Desc: 'Rapid document issuance, thermal barcode labels, and unified tracking for end customers.',
+    pointCtaRegister: 'Register My Store (Point)',
+    pointCtaLogin: 'Point Portal Access',
     btnLogin: 'Log In',
     btnRegister: 'Register',
     btnDashboard: 'Go to Dashboard',
@@ -323,6 +349,19 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     navServices: 'Servizi',
     navDestinations: 'Destinazioni',
     navPricing: 'Piani & Tariffe',
+    navPoint: 'Rete Points',
+    navPointRegister: 'Registra il tuo Negozio (Point)',
+    pointSectionBadge: '🏪 Rete di Negozi Affiliati',
+    pointSectionTitle: 'Trasforma il tuo negozio in un Point Ship24Go ufficiale',
+    pointSectionSubtitle: 'Attira nuovi clienti nel tuo punto vendita, spedisci documenti e pacchi con tracciamento ufficiale e guadagna commissioni su ogni operazione.',
+    pointFeature1Title: 'Posizione Verificata con Google Maps',
+    pointFeature1Desc: 'I clienti della tua zona troveranno facilmente il tuo punto vendita sulla mappa interattiva.',
+    pointFeature2Title: 'Commissioni Dirette su Ogni Spedizione',
+    pointFeature2Desc: 'Genera entrate ricorrenti per ogni collo gestito, con un registro contabile trasparente.',
+    pointFeature3Title: 'Operatività Digitale in 1 Clic',
+    pointFeature3Desc: 'Emissione immediata con ricevuta digitale, codice a barre termico e tracciamento unificato.',
+    pointCtaRegister: 'Registra il tuo Negozio (Point)',
+    pointCtaLogin: 'Accedi al Pannello Point',
     btnLogin: 'Accedi',
     btnRegister: 'Registrati',
     btnDashboard: 'Vai al Pannello',
@@ -459,6 +498,19 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     navServices: 'Services',
     navDestinations: 'Destinations',
     navPricing: 'Forfaits & Tarifs',
+    navPoint: 'Réseau Points',
+    navPointRegister: 'Inscrire mon Commerce (Point)',
+    pointSectionBadge: '🏪 Réseau de Commerces Affiliés',
+    pointSectionTitle: 'Transformez votre commerce en Point Ship24Go officiel',
+    pointSectionSubtitle: 'Attirez de nouveaux clients dans votre boutique, traitez les expéditions de colis avec le suivi officiel et gagnez des commissions sur chaque opération.',
+    pointFeature1Title: 'Localisation Vérifiée sur Google Maps',
+    pointFeature1Desc: 'Les clients de votre secteur trouvent facilement votre commerce sur la carte interactive.',
+    pointFeature2Title: 'Commissions Directes à Chaque Envoi',
+    pointFeature2Desc: 'Générez des revenus récurrents pour chaque colis traité, avec un grand livre comptable auditable.',
+    pointFeature3Title: 'Gestion Digitale en 1 Clic',
+    pointFeature3Desc: 'Émission immédiate de reçus, étiquettes thermiques et traçabilité unifiée.',
+    pointCtaRegister: 'Inscrire mon Commerce (Point)',
+    pointCtaLogin: 'Accéder à l\'Espace Point',
     btnLogin: 'Connexion',
     btnRegister: 'S\'inscrire',
     btnDashboard: 'Tableau de bord',
@@ -595,6 +647,19 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     navServices: 'Dienstleistungen',
     navDestinations: 'Globale Ziele',
     navPricing: 'Pläne & Tarife',
+    navPoint: 'Point-Netzwerk',
+    navPointRegister: 'Geschäft als Point anmelden',
+    pointSectionBadge: '🏪 Partnergeschäfte-Netzwerk',
+    pointSectionTitle: 'Machen Sie Ihr Geschäft zu einem offiziellen Ship24Go Point',
+    pointSectionSubtitle: 'Bringen Sie Laufkundschaft in Ihr Ladenlokal, versenden Sie Dokumente und Pakete mit offiziellem Tracking und verdienen Sie Provisionen.',
+    pointFeature1Title: 'Google Maps verifizierter Standort',
+    pointFeature1Desc: 'Kunden in Ihrer Umgebung finden Ihr Geschäft direkt auf der interaktiven Karte.',
+    pointFeature2Title: 'Direkte Provisionen pro Sendung',
+    pointFeature2Desc: 'Erzielen Sie planbare Einnahmen für jedes angenommene oder versendete Paket mit transparentem Ledger.',
+    pointFeature3Title: 'Digitale 1-Klick-Abwicklung',
+    pointFeature3Desc: 'Sofortige Erfassung, Barcode-Labels und nahtlose Sendungsverfolgung für den Kunden.',
+    pointCtaRegister: 'Geschäft als Point anmelden',
+    pointCtaLogin: 'Zum Point-Portal',
     btnLogin: 'Anmelden',
     btnRegister: 'Registrieren',
     btnDashboard: 'Zum Dashboard',
@@ -731,6 +796,19 @@ const LANDING_TEXTS: Record<string, Record<string, string>> = {
     navServices: '物流服务',
     navDestinations: '全球目的地',
     navPricing: '方案与价格',
+    navPoint: '合作网点',
+    navPointRegister: '商户加盟申请 (Point)',
+    pointSectionBadge: '🏪 实体商户加盟网络',
+    pointSectionTitle: '将您的实体店铺升级为 Ship24Go 官方合作网点',
+    pointSectionSubtitle: '为您的线下店铺引入真实客流，代客发运文件、信件与包裹，尊享官方追踪服务与持续佣金分成。',
+    pointFeature1Title: 'Google Maps 认证地理位置',
+    pointFeature1Desc: '本地客户可直接在互动地图上精准定位您的门店进行寄件和取件。',
+    pointFeature2Title: '每单实时透明佣金分成',
+    pointFeature2Desc: '每处理一票收发单据即可获得直接佣金，账目清晰明细可查。',
+    pointFeature3Title: '一键式全数字高效操作',
+    pointFeature3Desc: '极速出单、热敏条码打印与全链路单号实时追踪。',
+    pointCtaRegister: '申请加盟合作网点 (Point)',
+    pointCtaLogin: '网点控制台登录',
     btnLogin: '登录',
     btnRegister: '注册',
     btnDashboard: '进入控制台',
@@ -1071,6 +1149,9 @@ export const Landing = () => {
             <div className="hidden xl:flex flex-1 min-w-0 items-center justify-center mx-4 2xl:mx-8 gap-2.5 xl:gap-3.5 2xl:gap-5 font-semibold text-[13px] 2xl:text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
               <a href="#quote-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navQuoter}</a>
               <Link to="/tracking" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navTracking}</Link>
+              <a href="#point-section" className="px-2.5 py-1 rounded-lg text-cyan-600 dark:text-cyan-400 font-bold hover:bg-cyan-50 dark:hover:bg-cyan-950/40 border border-cyan-500/30 transition-all whitespace-nowrap flex items-center gap-1.5 shadow-sm">
+                <span>🏪</span> {lt.navPoint || 'Points'}
+              </a>
               <a href="#features-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navServices}</a>
               <a href="#destinations-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navDestinations}</a>
               <a href="#pricing-section" className="px-2.5 py-1 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navPricing}</a>
@@ -1180,6 +1261,14 @@ export const Landing = () => {
               >
                 <span>🔍 {lt.navTracking}</span>
               </Link>
+              <Link 
+                to="/point/register" 
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="py-2.5 px-3 rounded-xl bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-500/30 text-cyan-700 dark:text-cyan-300 hover:bg-cyan-100 flex items-center justify-between"
+              >
+                <span className="flex items-center gap-2">🏪 {lt.navPoint || 'Points Afiliados'}</span>
+                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-cyan-500 text-white">Nuevo</span>
+              </Link>
               <a 
                 href="#features-section" 
                 onClick={() => setIsMobileMenuOpen(false)}
@@ -1196,7 +1285,14 @@ export const Landing = () => {
               </a>
             </div>
 
-            <div className="pt-2">
+            <div className="pt-2 flex flex-col gap-2">
+              <Link 
+                to="/point/register"
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="w-full py-2.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 font-bold text-center block text-xs"
+              >
+                🏪 {lt.pointCtaRegister || 'Registrar mi Negocio como Point'}
+              </Link>
               <Link 
                 to="/auth/register"
                 onClick={() => setIsMobileMenuOpen(false)}
@@ -1799,6 +1895,108 @@ export const Landing = () => {
         </div>
       </section>
 
+      {/* SECCIÓN RED DE POINTS AFILIADOS SHIP24GO */}
+      <section id="point-section" className="py-20 bg-gradient-to-b from-cyan-50/50 via-white to-slate-50 dark:from-slate-900 dark:via-[#070d1d] dark:to-[#030712] border-t border-cyan-500/20 relative overflow-hidden">
+        <div className="absolute -right-20 top-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="text-center max-w-3xl mx-auto mb-16">
+            <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-cyan-100 dark:bg-cyan-950/80 text-cyan-800 dark:text-cyan-300 text-xs font-black uppercase tracking-wider border border-cyan-300 dark:border-cyan-800">
+              <span>🏪</span> {lt.pointSectionBadge || 'Red Oficial de Puntos'}
+            </span>
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-900 dark:text-white mt-3 leading-tight">
+              {lt.pointSectionTitle || 'Convierte tu comercio en un Punto Ship24Go'}
+            </h2>
+            <p className="text-slate-600 dark:text-slate-400 text-sm sm:text-base mt-4 leading-relaxed">
+              {lt.pointSectionSubtitle || 'Únete a nuestra red de locales asociados. Recibe y entrega paquetes en tu ciudad, gana comisiones por cada paquete y atrae nuevos clientes todos los días con geolocalización Google Maps.'}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+            <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-xl transition-all flex flex-col justify-between group">
+              <div>
+                <div className="w-14 h-14 rounded-2xl bg-cyan-50 dark:bg-cyan-950/60 border border-cyan-100 dark:border-cyan-900/50 flex items-center justify-center text-2xl mb-6 group-hover:scale-110 transition-transform">
+                  📍
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                  {lt.pointFeature1Title || 'Ubicación Verificada en Google Maps'}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                  {lt.pointFeature1Desc || 'Integración directa con Google Place ID y geolocalización en tiempo real para que tus clientes encuentren tu tienda al instante.'}
+                </p>
+              </div>
+              <div className="pt-6 border-t border-slate-100 dark:border-slate-800 mt-6 flex items-center text-xs font-semibold text-cyan-600 dark:text-cyan-400 gap-1">
+                <span>Total visibilidad en el cotizador</span>
+              </div>
+            </div>
+
+            <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-cyan-500/40 dark:border-cyan-500/30 shadow-lg hover:shadow-2xl transition-all flex flex-col justify-between group relative overflow-hidden">
+              <div className="absolute top-0 right-0 bg-gradient-to-l from-cyan-500 to-indigo-600 text-white text-[10px] font-black uppercase px-3 py-1 rounded-bl-xl tracking-wider">
+                Comisión Directa
+              </div>
+              <div>
+                <div className="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-center text-2xl mb-6 group-hover:scale-110 transition-transform">
+                  💶
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                  {lt.pointFeature2Title || 'Ingresos y Comisiones por Paquete'}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                  {lt.pointFeature2Desc || 'Monetiza tu espacio físico. Gana una comisión fija por cada paquete recibido, custodiado o entregado en tu establecimiento.'}
+                </p>
+              </div>
+              <div className="pt-6 border-t border-slate-100 dark:border-slate-800 mt-6 flex items-center text-xs font-semibold text-indigo-600 dark:text-cyan-400 gap-1">
+                <span>Liquidación periódica garantizada</span>
+              </div>
+            </div>
+
+            <div className="p-8 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-xl transition-all flex flex-col justify-between group">
+              <div>
+                <div className="w-14 h-14 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-100 dark:border-emerald-900/50 flex items-center justify-center text-2xl mb-6 group-hover:scale-110 transition-transform">
+                  📱
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
+                  {lt.pointFeature3Title || 'Gestión Rápida en 1 Clic'}
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 leading-relaxed">
+                  {lt.pointFeature3Desc || 'Panel intuitivo optimizado para móviles y lectores de código de barras. Registro de entrada y entrega en segundos.'}
+                </p>
+              </div>
+              <div className="pt-6 border-t border-slate-100 dark:border-slate-800 mt-6 flex items-center text-xs font-semibold text-emerald-600 dark:text-emerald-400 gap-1">
+                <span>Sin papeleos ni instalaciones complejas</span>
+              </div>
+            </div>
+          </div>
+
+          {/* CTA Box de Registro / Login Point */}
+          <div className="rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-8 sm:p-12 border border-slate-800 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-8">
+            <div className="space-y-2 text-center md:text-left">
+              <h3 className="text-2xl sm:text-3xl font-black tracking-tight">
+                ¿Listo para ser un punto de entrega oficial?
+              </h3>
+              <p className="text-slate-300 text-sm max-w-xl">
+                El registro toma menos de 2 minutos. Solo necesitas tu dirección comercial y horario de atención.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0 w-full md:w-auto">
+              <Link
+                to="/point/register"
+                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-gradient-to-r from-cyan-400 to-cyan-500 hover:from-cyan-300 hover:to-cyan-400 text-slate-950 font-black text-sm text-center shadow-lg shadow-cyan-500/25 transition-all flex items-center justify-center gap-2"
+              >
+                <span>🏪</span>
+                <span>{lt.pointCtaRegister || 'Registrar mi Comercio'}</span>
+              </Link>
+              <Link
+                to="/point"
+                className="w-full sm:w-auto px-6 py-3.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-white font-bold text-sm text-center border border-slate-700 transition-all flex items-center justify-center gap-2"
+              >
+                <span>🔑</span>
+                <span>{lt.pointCtaLogin || 'Acceso Puntos Afiliados'}</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* FLUJO DE TRABAJO SENCILLO */}
       <section className="py-20 bg-slate-50 dark:bg-[#030712] border-t border-slate-200 dark:border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1962,6 +2160,7 @@ function Footer({ brandName, lt, brand }: { brandName: string; lt: Record<string
               <li><a href="#quote-section" className="hover:text-white transition-colors">{lt.navQuoter}</a></li>
               <li><Link to="/tracking" className="hover:text-white transition-colors">{lt.navTracking}</Link></li>
               <li><a href="#features-section" className="hover:text-white transition-colors">{lt.navServices}</a></li>
+              <li><a href="#point-section" className="hover:text-white transition-colors">🏪 {lt.navPoint || 'Points Afiliados'}</a></li>
               <li><a href="#pricing-section" className="hover:text-white transition-colors">{lt.navPricing}</a></li>
             </ul>
           </div>
@@ -1979,6 +2178,8 @@ function Footer({ brandName, lt, brand }: { brandName: string; lt: Record<string
           <div>
             <h4 className="text-xs uppercase font-bold text-slate-300 tracking-wider mb-3">{lt.footerCompany}</h4>
             <ul className="space-y-2.5 text-xs text-slate-400">
+              <li><Link to="/point/register" className="hover:text-cyan-400 transition-colors text-cyan-300 font-semibold flex items-center gap-1.5"><span>🏪</span> {lt.pointCtaRegister || 'Registrar Point'}</Link></li>
+              <li><Link to="/point" className="hover:text-cyan-400 transition-colors text-cyan-300 font-semibold flex items-center gap-1.5"><span>🔑</span> {lt.pointCtaLogin || 'Portal Point'}</Link></li>
               <li><Link to="/auth/login" className="hover:text-white transition-colors">{lt.btnLogin}</Link></li>
               <li><Link to="/auth/register" className="hover:text-white transition-colors">{lt.btnRegister}</Link></li>
               <li><span className="text-slate-400">{lt.footerSecurity}</span></li>
