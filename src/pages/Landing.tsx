@@ -1066,7 +1066,7 @@ export const Landing = () => {
       {/* NAVBAR SUPERIOR ELEGANTE */}
       <nav className="fixed top-0 inset-x-0 z-50 bg-white/95 dark:bg-[#030712]/95 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800/80 shadow-sm shadow-slate-200/30 dark:shadow-black/20 transition-all">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-20 md:h-22">
+          <div className="flex justify-between items-center gap-4 h-20 md:h-22">
             
             {/* LOGO OFICIAL SHIP24GO - PROPORCIONADO Y SIN TEXTO SECUNDARIO */}
             <Link to="/" className="flex items-center gap-3.5 cursor-pointer group shrink-0">
@@ -1084,7 +1084,7 @@ export const Landing = () => {
             </Link>
 
             {/* Desktop Nav Links - Con whitespace-nowrap para que nunca se quiebre en dos líneas */}
-            <div className="hidden lg:flex flex-1 min-w-0 items-center justify-center gap-5 xl:gap-7 font-semibold text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
+            <div className="hidden xl:flex flex-1 min-w-0 items-center justify-center gap-4 xl:gap-5 font-semibold text-sm text-slate-600 dark:text-slate-300 whitespace-nowrap">
               <a href="#quote-section" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navQuoter}</a>
               <Link to="/tracking" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navTracking}</Link>
               <a href="#features-section" className="hover:text-indigo-600 dark:hover:text-cyan-400 transition-colors whitespace-nowrap">{lt.navServices}</a>
@@ -1093,7 +1093,7 @@ export const Landing = () => {
             </div>
 
             {/* Desktop Nav Actions */}
-            <div className="hidden lg:flex items-center gap-2.5 shrink-0">
+            <div className="hidden xl:flex items-center gap-2 shrink-0">
               <CurrencySelector />
               <LanguageSelector />
 
@@ -1134,7 +1134,7 @@ export const Landing = () => {
             </div>
 
             {/* Botón Móvil */}
-            <div className="flex items-center gap-2 lg:hidden">
+            <div className="flex items-center gap-2 xl:hidden">
               <button onClick={toggleTheme} className="p-2 text-slate-600 dark:text-slate-300">
                 {isDarkMode ? <Sun className="w-5 h-5 text-yellow-400" /> : <Moon className="w-5 h-5 text-slate-600" />}
               </button>
@@ -1157,7 +1157,7 @@ export const Landing = () => {
 
         {/* Menú Desplegable Móvil */}
         {isMobileMenuOpen && (
-          <div className="lg:hidden bg-white/95 dark:bg-[#020617]/95 border-b border-slate-200 dark:border-slate-800 px-5 py-4 space-y-3 animate-fade-in shadow-2xl">
+          <div className="xl:hidden bg-white/95 dark:bg-[#020617]/95 border-b border-slate-200 dark:border-slate-800 px-5 py-4 space-y-3 animate-fade-in shadow-2xl">
             
             {/* Header del menú móvil con logo oficial */}
             <div className="flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
