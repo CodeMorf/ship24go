@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { SystemPresentationSection } from '../components/SystemPresentationSection';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Package, 
@@ -29,7 +30,10 @@ import {
   Trash2,
   Sparkles,
   Layers,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Store,
+  Laptop,
+  Key
 } from 'lucide-react';
 import { LanguageSelector } from '../components/LanguageSelector';
 import { CurrencySelector } from '../components/CurrencySelector';
@@ -1152,6 +1156,7 @@ export const Landing = () => {
                 <Link to="/points" className="px-3 py-1.5 rounded-lg text-cyan-700 dark:text-cyan-300 font-bold bg-cyan-50 dark:bg-cyan-950/50 hover:bg-cyan-100 dark:hover:bg-cyan-900/60 border border-cyan-500/30 transition-all whitespace-nowrap flex items-center gap-1.5 shadow-xs">
                   <span>🏪</span> {lt.navPoint || 'Points'}
                 </Link>
+                <a href="#how-it-works-section" className="px-2.5 py-1.5 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">Cómo Funciona</a>
                 <a href="#features-section" className="px-2.5 py-1.5 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navServices}</a>
                 <a href="#pricing-section" className="px-2.5 py-1.5 rounded-lg hover:text-indigo-600 dark:hover:text-cyan-400 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 transition-colors whitespace-nowrap">{lt.navPricing}</a>
               </nav>
@@ -1721,6 +1726,9 @@ export const Landing = () => {
         </div>
       </section>
 
+      {/* SECCIÓN CÓMO FUNCIONA / ECOSISTEMA LOGÍSTICO COMPLETO */}
+      <SystemPresentationSection />
+
       {/* SECCIÓN DE SERVICIOS Y CARACTERÍSTICAS */}
       <section id="features-section" className="py-20 bg-slate-100/50 dark:bg-[#030712] border-t border-slate-200 dark:border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -2122,7 +2130,63 @@ function Footer({ brandName, lt, brand }: { brandName: string; lt: Record<string
   return (
     <footer className="bg-slate-950 pt-16 pb-10 border-t border-slate-900 text-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-8 mb-12">
+        {/* Banner oficial para Red de Points, Sucursales y Empleados */}
+        <div className="mb-12 p-6 rounded-3xl bg-linear-to-r from-blue-950/80 via-slate-900 to-indigo-950/80 border border-blue-500/30 flex flex-col lg:flex-row items-center justify-between gap-6 shadow-xl">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-cyan-400 shrink-0">
+              <Store className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-wider text-cyan-400">
+                  Red de Sucursales &amp; Comercios Afiliados
+                </span>
+              </div>
+              <h4 className="text-base font-black text-white">
+                Terminal de Mostrador POS &amp; Acceso a Sucursales
+              </h4>
+              <p className="text-xs text-slate-300 max-w-xl">
+                Acceso para cajeros con PIN, terminales de mostrador autorizadas, mapa localizador y afiliación de puntos.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <Link 
+              to="/points" 
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+            >
+              <MapPin className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Buscar Sucursales</span>
+            </Link>
+
+            <Link 
+              to="/point/login" 
+              className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-black text-white shadow-md shadow-blue-900/40 transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Laptop className="w-3.5 h-3.5" />
+              <span>Terminal Mostrador POS</span>
+            </Link>
+
+            <Link 
+              to="/branch/login" 
+              className="px-3.5 py-2 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Key className="w-3.5 h-3.5" />
+              <span>Login Empleados (PIN)</span>
+            </Link>
+
+            <Link 
+              to="/point/register" 
+              className="px-3.5 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>+ Afiliar mi Local</span>
+            </Link>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8 mb-12">
           
           {/* Logo oficial y descripción */}
           <div className="col-span-2 pr-4 sm:pr-8">
@@ -2154,33 +2218,46 @@ function Footer({ brandName, lt, brand }: { brandName: string; lt: Record<string
           <div>
             <h4 className="text-xs uppercase font-bold text-slate-300 tracking-wider mb-3">{lt.footerProduct}</h4>
             <ul className="space-y-2.5 text-xs text-slate-400">
-              <li><a href="#quote-section" className="hover:text-white transition-colors">{lt.navQuoter}</a></li>
+              <li><Link to="/cotizador" className="hover:text-white transition-colors">{lt.navQuoter}</Link></li>
               <li><Link to="/tracking" className="hover:text-white transition-colors">{lt.navTracking}</Link></li>
-              <li><a href="#features-section" className="hover:text-white transition-colors">{lt.navServices}</a></li>
-              <li><a href="#point-section" className="hover:text-white transition-colors">🏪 {lt.navPoint || 'Points Afiliados'}</a></li>
-              <li><a href="#pricing-section" className="hover:text-white transition-colors">{lt.navPricing}</a></li>
+              <li><Link to="/servicios" className="hover:text-white transition-colors">{lt.navServices}</Link></li>
+              <li><Link to="/red-points" className="hover:text-white transition-colors">🏪 {lt.navPoint || 'Points Afiliados'}</Link></li>
+              <li><Link to="/tarifas" className="hover:text-white transition-colors">{lt.navPricing}</Link></li>
             </ul>
           </div>
           
           <div>
             <h4 className="text-xs uppercase font-bold text-slate-300 tracking-wider mb-3">{lt.footerDestinations}</h4>
             <ul className="space-y-2.5 text-xs text-slate-400">
-              <li><span className="text-slate-400">{lt.footerDestEurope}</span></li>
-              <li><span className="text-slate-400">{lt.footerDestUSA}</span></li>
-              <li><span className="text-slate-400">{lt.footerDestDO}</span></li>
-              <li><span className="text-slate-400">{lt.footerDestLatam}</span></li>
+              <li><Link to="/destinos/espana-union-europea" className="hover:text-white transition-colors">{lt.footerDestEurope}</Link></li>
+              <li><Link to="/destinos/estados-unidos" className="hover:text-white transition-colors">{lt.footerDestUSA}</Link></li>
+              <li><Link to="/destinos/republica-dominicana" className="hover:text-white transition-colors">{lt.footerDestDO}</Link></li>
+              <li><Link to="/destinos/america-latina" className="hover:text-white transition-colors">{lt.footerDestLatam}</Link></li>
+            </ul>
+          </div>
+
+          {/* Columna dedicada: Red Points & Empleados */}
+          <div>
+            <h4 className="text-xs uppercase font-bold text-cyan-400 tracking-wider mb-3 flex items-center gap-1.5">
+              <span>🏪</span> Red Points &amp; Empleados
+            </h4>
+            <ul className="space-y-2.5 text-xs text-slate-300">
+              <li><Link to="/points" className="hover:text-cyan-400 transition-colors flex items-center gap-1.5">📍 Localizador de Puntos</Link></li>
+              <li><Link to="/point/login" className="hover:text-cyan-400 transition-colors flex items-center gap-1.5">💻 Terminal Mostrador (POS)</Link></li>
+              <li><Link to="/branch/login" className="hover:text-cyan-400 transition-colors flex items-center gap-1.5">🔢 Login Empleados (PIN)</Link></li>
+              <li><Link to="/point" className="hover:text-cyan-400 transition-colors flex items-center gap-1.5">👑 Portal Dueño Sucursal</Link></li>
+              <li><Link to="/point/register" className="hover:text-cyan-400 transition-colors text-cyan-300 font-semibold flex items-center gap-1.5">📝 Afiliar nuevo Point</Link></li>
+              <li><Link to="/point/roadmap" className="hover:text-cyan-400 transition-colors text-amber-300 font-semibold flex items-center gap-1.5">🗺️ Roadmap &amp; Rentabilidad</Link></li>
             </ul>
           </div>
 
           <div>
             <h4 className="text-xs uppercase font-bold text-slate-300 tracking-wider mb-3">{lt.footerCompany}</h4>
             <ul className="space-y-2.5 text-xs text-slate-400">
-              <li><Link to="/point/register" className="hover:text-cyan-400 transition-colors text-cyan-300 font-semibold flex items-center gap-1.5"><span>🏪</span> {lt.pointCtaRegister || 'Registrar Point'}</Link></li>
-              <li><Link to="/point" className="hover:text-cyan-400 transition-colors text-cyan-300 font-semibold flex items-center gap-1.5"><span>🔑</span> {lt.pointCtaLogin || 'Portal Point'}</Link></li>
               <li><Link to="/auth/login" className="hover:text-white transition-colors">{lt.btnLogin}</Link></li>
               <li><Link to="/auth/register" className="hover:text-white transition-colors">{lt.btnRegister}</Link></li>
-              <li><span className="text-slate-400">{lt.footerSecurity}</span></li>
-              <li><span className="text-slate-400">{lt.footerApiDocs}</span></li>
+              <li><Link to="/seguridad" className="hover:text-white transition-colors">{lt.footerSecurity}</Link></li>
+              <li><Link to="/api-docs" className="hover:text-white transition-colors">{lt.footerApiDocs}</Link></li>
             </ul>
           </div>
         </div>

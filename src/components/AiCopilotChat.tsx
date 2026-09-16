@@ -23,8 +23,6 @@ export function AiCopilotChat() {
   const { t, language } = useI18n();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [conversationId, setConversationId] = useState<string>(() => localStorage.getItem('ship24go_ai_conversation_id') || '');
-  const [activeTicket, setActiveTicket] = useState<{ id: string; subject: string; status: string } | null>(null);
-  const [closingTicket, setClosingTicket] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -63,26 +61,6 @@ export function AiCopilotChat() {
     }
   }, [messages, storageKey]);
 
-  const handleCloseTicket = async () => {
-    if (!conversationId && !activeTicket) return;
-    setClosingTicket(true);
-    try {
-      await api.closeCopilotTicket(conversationId);
-      setActiveTicket((prev) => prev ? { ...prev, status: 'resolved' } : null);
-      const closeMsg: ChatMessage = {
-        id: `msg_${Date.now()}_close`,
-        role: 'assistant',
-        content: '✅ Has cerrado esta consulta. El ticket ha sido resuelto. Si necesitas algo más, escribe un nuevo mensaje para iniciar una nueva consulta.',
-        timestamp: new Date().toISOString()
-      };
-      setMessages((prev) => [...prev, closeMsg]);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setClosingTicket(false);
-    }
-  };
-
   const handleSendMessage = async (text: string) => {
     const cleanText = text.trim();
     if (!cleanText || loading) return;
@@ -108,10 +86,6 @@ export function AiCopilotChat() {
       if (res.conversationId) {
         setConversationId(res.conversationId);
         localStorage.setItem('ship24go_ai_conversation_id', res.conversationId);
-      }
-
-      if (res.ticket) {
-        setActiveTicket(res.ticket);
       }
 
       const responseText = res.response || res.message || t('ai_error_message');
@@ -223,36 +197,6 @@ export function AiCopilotChat() {
         </div>
 
         <div className="lg:col-span-3 flex flex-col h-[560px] sm:h-[640px] rounded-3xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-slate-900 overflow-hidden shadow-sm">
-          {/* BANNER DE TICKET DE SOPORTE VINCULADO */}
-          {activeTicket && activeTicket.status === 'open' && (
-            <div className="px-4 py-2.5 bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-blue-500/10 border-b border-emerald-500/20 flex items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-bold">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                </span>
-                <span>Ticket en vivo #{activeTicket.id.slice(-6).toUpperCase()} · Conectado con Soporte Admin</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleCloseTicket}
-                disabled={closingTicket}
-                className="px-3 py-1 bg-white dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/50 rounded-xl font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50"
-              >
-                {closingTicket ? 'Cerrando...' : 'Finalizar y Cerrar Ticket'}
-              </button>
-            </div>
-          )}
-          {activeTicket && (activeTicket.status === 'resolved' || activeTicket.status === 'closed') && (
-            <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                <span>Ticket #{activeTicket.id.slice(-6).toUpperCase()} <strong className="text-slate-700 dark:text-slate-200">Cerrado / Resuelto</strong></span>
-              </div>
-              <span className="text-[11px] text-slate-400 font-medium">Escribe un nuevo mensaje para abrir una nueva consulta</span>
-            </div>
-          )}
-
           <div className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6 bg-gradient-to-b from-slate-50 to-white dark:from-slate-950 dark:to-slate-900">
             {messages.map((msg) => {
               const isAssistant = msg.role === 'assistant';

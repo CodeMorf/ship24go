@@ -1,7 +1,7 @@
 import { getCountryName, WORLD_COUNTRIES } from '../lib/countries';
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, LayoutDashboard, Users, Package, Settings, LogOut, BarChart3, Truck, Crown, Edit, Save, LifeBuoy, Sparkles, Menu, X, Eye, Lock, Unlock, LogIn, CreditCard, Wallet, ShieldCheck, ShieldAlert, XCircle, Moon, Sun, MapPin, Clipboard, PlayCircle, RefreshCw, Mail, Send, Activity, Clock, Plug, Store, Link2, CheckCircle2, AlertTriangle, ExternalLink, PlusCircle, Calculator } from 'lucide-react';
+import { BookOpen, LayoutDashboard, Users, Package, Settings, LogOut, BarChart3, Truck, Crown, Edit, Save, LifeBuoy, Sparkles, Menu, X, Eye, Lock, Unlock, LogIn, CreditCard, Wallet, ShieldCheck, ShieldAlert, XCircle, Moon, Sun, MapPin, Clipboard, PlayCircle, RefreshCw, Mail, Send, Activity, Clock, Plug, Store, Link2, CheckCircle2, AlertTriangle, ExternalLink, PlusCircle, Calculator, TrendingUp } from 'lucide-react';
 import { api, removeAuthToken, getAuthToken, setAuthToken } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 
@@ -35,6 +35,7 @@ import AdminAuditLogs from '../components/AdminAuditLogs';
 import { AiCopilotChat } from '../components/AiCopilotChat';
 import AdminTeam from './AdminTeam';
 import AdminPoints from './AdminPoints';
+import AdminTariffs from './AdminTariffs';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -84,8 +85,10 @@ const AdminSidebar = ({ isMobileMenuOpen, toggleMobileMenu, currentUser, isDark,
     { name: t('bank_admin_nav'), path: '/admin/banks', icon: CreditCard, permission: 'banks.manage' },
     { name: 'Equipo & Roles', path: '/admin/team', icon: ShieldCheck, permission: 'team.view' },
     { name: 'Points afiliados', path: '/admin/points', icon: MapPin, permission: 'points.view' },
+    { name: 'Tarifas & Hubs', path: '/admin/tariffs', icon: Calculator, permission: 'settings.manage' },
     { name: t('reports'), path: '/admin/reports', icon: BarChart3, permission: 'reports.view' },
     { name: t('settings'), path: '/admin/settings', icon: Settings, permission: 'settings.manage' },
+    { name: 'Business Plan & Tarifas', path: '/admin/settings/docs/plan', icon: TrendingUp, permission: 'settings.manage' },
     { name: 'Docs & Arquitectura', path: '/admin/settings/docs', icon: BookOpen, permission: 'settings.manage' },
     { name: 'Auditoría & Logs', path: '/admin/settings/audit', icon: ShieldAlert, permission: 'settings.manage' },
     { name: t('tickets_support'), path: '/admin/tickets', icon: LifeBuoy, permission: 'tickets.view' },
@@ -3279,11 +3282,14 @@ export default function AdminPanel() {
             <Route path="/banks" element={<AdminBankWallet />} />
             <Route path="/team" element={<AdminTeam currentUser={currentUser} />} />
             <Route path="/points" element={<AdminPoints />} />
+            <Route path="/tariffs" element={<AdminTariffs />} />
             <Route path="/reports" element={<AdminReports />} />
             <Route path="/settings" element={<AdminSettings />} />
             <Route path="/settings/cron" element={<AdminLabelCron />} />
             <Route path="/settings/status" element={<AdminStatusCron />} />
             <Route path="/settings/email/logs" element={<AdminEmailLogs />} />
+            <Route path="/settings/docs/plan" element={<AdminDocs defaultTab="plan" />} />
+            <Route path="/settings/docs/plan/*" element={<AdminDocs defaultTab="plan" />} />
             <Route path="/settings/docs" element={<AdminDocs />} />
             <Route path="/settings/docs/*" element={<AdminDocs />} />
             <Route path="/settings/audit" element={<AdminAuditLogs />} />

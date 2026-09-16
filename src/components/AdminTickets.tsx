@@ -1,26 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useI18n } from '../lib/i18n';
 import { api } from '../lib/api';
-import { LifeBuoy, Send, MessageSquare, ChevronRight, Clock, User, Sparkles, AlertTriangle, ArrowLeft, CheckCircle, HelpCircle, Shield, Check, XCircle, Wallet, RefreshCw, Plus, X } from 'lucide-react';
+import { LifeBuoy, Send, MessageSquare, ChevronRight, Clock, User, Sparkles, AlertTriangle, ArrowLeft, CheckCircle, HelpCircle, Shield, Check, XCircle, Wallet } from 'lucide-react';
 
 export function AdminTickets() {
   const { t, language } = useI18n();
   const [tickets, setTickets] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTicket, setActiveTicket] = useState<any>(null);
-  const [filter, setFilter] = useState<'all' | 'open' | 'chat' | 'resolved'>('all');
   const [replyMessage, setReplyMessage] = useState('');
   const [replyLoading, setReplyLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestedText, setAiSuggestedText] = useState('');
-
-  // Modal para crear ticket manual
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newSubject, setNewSubject] = useState('');
-  const [newCategory, setNewCategory] = useState('tracking_problem');
-  const [newTracking, setNewTracking] = useState('');
-  const [newDescription, setNewDescription] = useState('');
-  const [createLoading, setCreateLoading] = useState(false);
 
   useEffect(() => {
     fetchTickets();
@@ -35,46 +26,6 @@ export function AdminTickets() {
       console.error(e);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleReopenTicket = async () => {
-    if (!activeTicket) return;
-    try {
-      const res = await api.reopenTicket(activeTicket.id);
-      if (res.success) {
-        setActiveTicket({ ...activeTicket, status: 'open' });
-        await fetchTickets();
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleCreateManualTicket = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSubject.trim() || !newDescription.trim()) return;
-    setCreateLoading(true);
-    try {
-      const res = await api.createTicket({
-        subject: newSubject,
-        category: newCategory,
-        description: newDescription,
-        trackingCode: newTracking,
-        lang: language
-      });
-      if (res.success) {
-        setShowCreateModal(false);
-        setNewSubject('');
-        setNewDescription('');
-        setNewTracking('');
-        await fetchTickets();
-        if (res.ticket) setActiveTicket(res.ticket);
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setCreateLoading(false);
     }
   };
 
@@ -180,20 +131,10 @@ export function AdminTickets() {
         return t('ticket_category_weight');
       case 'cancellation_request':
         return t('ticket_category_cancellation');
-      case 'chat_soporte':
-      case 'ai_copilot_handoff':
-        return '💬 Chat Copiloto IA';
       default:
         return cat;
     }
   };
-
-  const filteredTickets = tickets.filter((t) => {
-    if (filter === 'open') return t.status === 'open';
-    if (filter === 'resolved') return t.status === 'resolved' || t.status === 'closed';
-    if (filter === 'chat') return t.category === 'chat_soporte' || t.category === 'ai_copilot_handoff';
-    return true;
-  });
 
   if (loading) {
     return (
@@ -207,30 +148,15 @@ export function AdminTickets() {
   return (
     <div className="p-8 max-w-7xl mx-auto font-sans">
       {/* HEADER SECTION */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+      <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
           <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-lg">
             <LifeBuoy className="w-6 h-6" />
           </div>
           <div>
             <h1 className="text-3xl font-black text-gray-900">Soporte, Tickets & Copiloto IA</h1>
-            <p className="text-sm text-gray-500 font-medium">Panel de administración para resolver incidencias de clientes y conversaciones del chat en vivo con IA.</p>
+            <p className="text-sm text-gray-500 font-medium">Panel de administración para resolver incidencias de clientes y simular respuestas generadas por Inteligencia Artificial.</p>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={fetchTickets}
-            className="p-2.5 rounded-xl border border-gray-200 text-gray-600 hover:bg-gray-50 transition cursor-pointer flex items-center gap-1.5 text-xs font-bold"
-            title="Actualizar listado"
-          >
-            <RefreshCw className="w-4 h-4" /> Refrescar
-          </button>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md transition cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Nuevo Ticket Manual
-          </button>
         </div>
       </div>
 
@@ -242,7 +168,7 @@ export function AdminTickets() {
           <div className="lg:col-span-1 space-y-6">
             <button 
               onClick={() => { setActiveTicket(null); fetchTickets(); }}
-              className="flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-gray-900 mb-2 cursor-pointer"
+              className="flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-gray-900 mb-2"
             >
               <ArrowLeft className="w-4 h-4" /> Volver al listado de incidencias
             </button>
@@ -250,8 +176,8 @@ export function AdminTickets() {
             <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-6">
               <div className="pb-4 border-b border-gray-100">
                 <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Cliente Emisor</span>
-                <p className="font-bold text-gray-900 mt-1">{activeTicket.userName || 'Usuario Cliente'}</p>
-                <p className="text-xs text-slate-500 font-medium font-mono mt-0.5">{activeTicket.userEmail || activeTicket.user_id}</p>
+                <p className="font-bold text-gray-900 mt-1">{activeTicket.userName}</p>
+                <p className="text-xs text-slate-500 font-medium font-mono mt-0.5">{activeTicket.userEmail}</p>
               </div>
 
               <div>
@@ -265,13 +191,9 @@ export function AdminTickets() {
               </div>
 
               <div>
-                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Categoría</span>
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Categoría Seleccionada</span>
                 <div className="mt-2">
-                  <span className={`px-3 py-1.5 text-xs font-bold rounded-full border ${
-                    activeTicket.category === 'chat_soporte' || activeTicket.category === 'ai_copilot_handoff'
-                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                      : 'bg-blue-50 text-blue-700 border-blue-100'
-                  }`}>
+                  <span className="px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-bold rounded-full border border-blue-100">
                     {getCategoryLabel(activeTicket.category)}
                   </span>
                 </div>
@@ -290,12 +212,12 @@ export function AdminTickets() {
                 <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Estado de Ticket</span>
                 <div className="mt-2">
                   {activeTicket.status === 'open' ? (
-                    <span className="px-3 py-1 bg-green-50 text-green-700 text-xs font-bold rounded-full border border-green-100 flex items-center gap-1.5 w-fit">
-                      <span className="w-2 h-2 rounded-full bg-green-500"></span> Abierto
+                    <span className="px-3 py-1 bg-green-50 text-green-700 text-xs font-bold rounded-full border border-green-100">
+                      Abierto
                     </span>
                   ) : (
-                    <span className="px-3 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded-full flex items-center gap-1.5 w-fit">
-                      <span className="w-2 h-2 rounded-full bg-gray-400"></span> Resuelto / Cerrado
+                    <span className="px-3 py-1 bg-gray-100 text-gray-500 text-xs font-bold rounded-full">
+                      Resuelto
                     </span>
                   )}
                 </div>
@@ -305,7 +227,7 @@ export function AdminTickets() {
                 <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Fecha de Creación</span>
                 <p className="text-sm text-gray-700 font-medium mt-1 flex items-center gap-1.5">
                   <Clock className="w-4 h-4 text-gray-400" />
-                  {new Date(activeTicket.createdAt || activeTicket.created_at).toLocaleString()}
+                  {new Date(activeTicket.createdAt).toLocaleString()}
                 </p>
               </div>
 
@@ -329,19 +251,12 @@ export function AdminTickets() {
                 </div>
               )}
 
-              {activeTicket.status === 'open' ? (
+              {activeTicket.status === 'open' && (
                 <button
                   onClick={handleResolveTicket}
-                  className="w-full py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-700 font-bold text-sm transition-colors cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full py-2.5 rounded-xl border border-green-500 hover:bg-green-50 text-green-600 font-bold text-sm transition-colors cursor-pointer"
                 >
-                  <CheckCircle className="w-4 h-4" /> Resolver y Cerrar Incidencia
-                </button>
-              ) : (
-                <button
-                  onClick={handleReopenTicket}
-                  className="w-full py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-300 text-blue-700 font-bold text-sm transition-colors cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <RefreshCw className="w-4 h-4" /> Reabrir Incidencia
+                  Resolver esta Incidencia
                 </button>
               )}
             </div>
@@ -493,227 +408,78 @@ export function AdminTickets() {
         </div>
       ) : (
         /* TICKET LIST VIEW */
-        <div className="space-y-6">
-          {/* TABS FILTER */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
-            <button
-              onClick={() => setFilter('all')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                filter === 'all'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
-              }`}
-            >
-              Todos ({tickets.length})
-            </button>
-            <button
-              onClick={() => setFilter('open')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                filter === 'open'
-                  ? 'bg-emerald-600 text-white shadow-sm'
-                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
-              }`}
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-              Abiertos ({tickets.filter((t) => t.status === 'open').length})
-            </button>
-            <button
-              onClick={() => setFilter('chat')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                filter === 'chat'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
-              }`}
-            >
-              <span>💬</span>
-              Chats Copiloto ({tickets.filter((t) => t.category === 'chat_soporte' || t.category === 'ai_copilot_handoff').length})
-            </button>
-            <button
-              onClick={() => setFilter('resolved')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                filter === 'resolved'
-                  ? 'bg-slate-700 text-white shadow-sm'
-                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
-              }`}
-            >
-              Resueltos / Cerrados ({tickets.filter((t) => t.status === 'resolved' || t.status === 'closed').length})
-            </button>
-          </div>
-
-          <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-            {filteredTickets.length === 0 ? (
-              <div className="p-20 text-center">
-                <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
-                  <LifeBuoy className="w-8 h-8" />
-                </div>
-                <h3 className="font-bold text-xl text-gray-900 mb-2">No hay incidencias en este filtro</h3>
-                <p className="text-sm text-gray-500 max-w-md mx-auto">
-                  {filter === 'chat' 
-                    ? 'No hay consultas por chat actualmente. Cuando un cliente inicie una conversación con el Copiloto o el Chat, aparecerá aquí automáticamente.'
-                    : 'No se encontraron tickets con el filtro seleccionado.'}
-                </p>
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+          {tickets.length === 0 ? (
+            <div className="p-20 text-center">
+              <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-3xl mx-auto mb-4">
+                <LifeBuoy className="w-8 h-8" />
               </div>
-            ) : (
-              <div className="divide-y divide-gray-150">
-                <div className="p-5 bg-slate-50/50 grid grid-cols-12 text-xs font-bold text-gray-400 uppercase tracking-wider">
-                  <div className="col-span-4">Cliente & ID</div>
-                  <div className="col-span-3">Asunto / Categoría</div>
-                  <div className="col-span-3">Último Mensaje</div>
-                  <div className="col-span-2 text-right">Estado</div>
-                </div>
+              <h3 className="font-bold text-xl text-gray-900 mb-2">No hay incidencias registradas</h3>
+              <p className="text-sm text-gray-500 max-w-md mx-auto">
+                Los clientes no han abierto tickets todavía. Cuando lo hagan, aparecerán listados aquí para que puedas darles respuesta usando la Inteligencia Artificial.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-150">
+              <div className="p-5 bg-slate-50/50 grid grid-cols-12 text-xs font-bold text-gray-400 uppercase tracking-wider">
+                <div className="col-span-4">Cliente & ID</div>
+                <div className="col-span-3">Asunto / Categoría</div>
+                <div className="col-span-3">Último Mensaje</div>
+                <div className="col-span-2 text-right">Estado</div>
+              </div>
 
-                {filteredTickets.map((t) => (
-                  <div 
-                    key={t.id}
-                    onClick={() => setActiveTicket(t)}
-                    className="p-5 grid grid-cols-12 items-center hover:bg-slate-50/60 transition-colors cursor-pointer"
-                  >
-                    <div className="col-span-4 flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${
-                        t.category === 'chat_soporte' || t.category === 'ai_copilot_handoff'
-                          ? 'bg-indigo-100 text-indigo-700'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}>
-                        {t.category === 'chat_soporte' || t.category === 'ai_copilot_handoff' ? '💬' : (t.userName ? t.userName.substring(0, 2).toUpperCase() : 'US')}
-                      </div>
-                      <div>
-                        <p className="font-bold text-gray-900 text-sm leading-tight">{t.userName || 'Usuario Cliente'}</p>
-                        <p className="text-xs text-gray-500 font-medium mt-0.5">{t.userEmail || t.user_id}</p>
-                        <p className="font-mono text-[10px] text-gray-400 mt-1">{t.id}</p>
-                      </div>
+              {tickets.map((t) => (
+                <div 
+                  key={t.id}
+                  onClick={() => setActiveTicket(t)}
+                  className="p-5 grid grid-cols-12 items-center hover:bg-slate-50/60 transition-colors cursor-pointer"
+                >
+                  <div className="col-span-4 flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-sm shrink-0">
+                      {t.userName ? t.userName.substring(0, 2).toUpperCase() : 'US'}
                     </div>
-
-                    <div className="col-span-3 pr-4">
-                      <p className="font-bold text-gray-850 text-sm leading-tight line-clamp-1">{t.subject}</p>
-                      <div className="mt-1">
-                        <span className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-full border ${
-                          t.category === 'chat_soporte' || t.category === 'ai_copilot_handoff'
-                            ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                            : 'bg-blue-50 text-blue-600 border-blue-100'
-                        }`}>
-                          {getCategoryLabel(t.category)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="col-span-3 text-sm text-gray-600 font-medium line-clamp-2 pr-4">
-                      {t.replies && t.replies.length > 0 ? (
-                        <span className="italic">
-                          {t.replies[t.replies.length - 1].senderName}: {t.replies[t.replies.length - 1].message}
-                        </span>
-                      ) : (
-                        <span className="italic text-gray-400">Sin mensajes</span>
-                      )}
-                    </div>
-
-                    <div className="col-span-2 text-right flex items-center justify-end gap-2">
-                      {t.status === 'open' ? (
-                        <span className="px-2.5 py-1 bg-green-50 text-green-700 text-xs font-bold rounded-full border border-green-100">
-                          Abierto
-                        </span>
-                      ) : (
-                        <span className="px-2.5 py-1 bg-gray-100 text-gray-500 text-xs font-bold rounded-full">
-                          Resuelto
-                        </span>
-                      )}
-                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                    <div>
+                      <p className="font-bold text-gray-900 text-sm leading-tight">{t.userName}</p>
+                      <p className="text-xs text-gray-500 font-medium mt-0.5">{t.userEmail}</p>
+                      <p className="font-mono text-[10px] text-gray-400 mt-1">{t.id}</p>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
-      {/* MODAL CREAR TICKET MANUAL */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 animate-scale-up">
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <LifeBuoy className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-gray-900 text-lg">Abrir Nuevo Ticket Manual</h3>
-              </div>
-              <button
-                onClick={() => setShowCreateModal(false)}
-                className="p-1 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+                  <div className="col-span-3 pr-4">
+                    <p className="font-bold text-gray-850 text-sm leading-tight line-clamp-1">{t.subject}</p>
+                    <div className="mt-1">
+                      <span className="inline-block px-2 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-full border border-blue-100">
+                        {getCategoryLabel(t.category)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="col-span-3 text-sm text-gray-600 font-medium line-clamp-2 pr-4">
+                    {t.replies && t.replies.length > 0 ? (
+                      <span className="italic">
+                        {t.replies[t.replies.length - 1].senderName}: {t.replies[t.replies.length - 1].message}
+                      </span>
+                    ) : (
+                      <span className="italic text-gray-400">Sin mensajes</span>
+                    )}
+                  </div>
+
+                  <div className="col-span-2 text-right flex items-center justify-end gap-2">
+                    {t.status === 'open' ? (
+                      <span className="px-2.5 py-1 bg-green-50 text-green-700 text-xs font-bold rounded-full border border-green-100">
+                        Abierto
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 bg-gray-100 text-gray-500 text-xs font-bold rounded-full">
+                        Resuelto
+                      </span>
+                    )}
+                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                  </div>
+                </div>
+              ))}
             </div>
-
-            <form onSubmit={handleCreateManualTicket} className="space-y-4 mt-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Asunto de la Incidencia</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Problema con entrega o actualización de tracking"
-                  value={newSubject}
-                  onChange={(e) => setNewSubject(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Categoría</label>
-                  <select
-                    value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="tracking_problem">Problema de Tracking</option>
-                    <option value="delayed_shipment">Envío Demorado</option>
-                    <option value="weight_mismatch">Diferencia de Peso</option>
-                    <option value="cancellation_request">Cancelación y Reembolso</option>
-                    <option value="chat_soporte">Consulta General / Chat</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Código Tracking (Opcional)</label>
-                  <input
-                    type="text"
-                    placeholder="Ej: ES123456789"
-                    value={newTracking}
-                    onChange={(e) => setNewTracking(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase mb-1">Descripción del Problema</label>
-                <textarea
-                  required
-                  rows={4}
-                  placeholder="Detalla el problema o solicitud del cliente..."
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                ></textarea>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 text-xs font-bold text-gray-500 hover:text-gray-700 rounded-xl hover:bg-gray-100 cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={createLoading}
-                  className="px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-md cursor-pointer disabled:opacity-50"
-                >
-                  {createLoading ? 'Creando...' : 'Crear Ticket'}
-                </button>
-              </div>
-            </form>
-          </div>
+          )}
         </div>
       )}
     </div>

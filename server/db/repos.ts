@@ -828,8 +828,8 @@ export const TrackingEventRepo = {
 
   async create(event: any): Promise<void> {
     await pool.query(
-      `INSERT INTO tracking_events (id, shipment_id, tracking_code, status_code, status_label, description, location, event_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tracking_events (id, shipment_id, tracking_code, status_code, status_label, description, location, event_time, hub_id, latitude, longitude, country_code, city)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         event.id || generateId('evt_'),
         event.shipment_id,
@@ -838,9 +838,31 @@ export const TrackingEventRepo = {
         event.status_label || event.status,
         event.description,
         event.location || null,
-        event.event_time || new Date().toISOString().slice(0, 19).replace('T', ' ')
+        event.event_time || new Date().toISOString().slice(0, 19).replace('T', ' '),
+        event.hub_id || null,
+        event.latitude != null ? Number(event.latitude) : null,
+        event.longitude != null ? Number(event.longitude) : null,
+        event.country_code || null,
+        event.city || null
       ]
     );
+  },
+
+  // Helper: Resolve hub location data for event enrichment
+  async getHubLocation(hubId: string): Promise<any> {
+    if (!hubId) return {};
+    const [rows]: any = await pool.query(
+      'SELECT id, latitude, longitude, country, city FROM hubs WHERE id = ? LIMIT 1',
+      [hubId]
+    );
+    if (!rows[0]) return {};
+    return {
+      hub_id: rows[0].id,
+      latitude: rows[0].latitude,
+      longitude: rows[0].longitude,
+      country_code: rows[0].country,
+      city: rows[0].city
+    };
   }
 };
 
@@ -1275,7 +1297,8 @@ export const PointRepo = {
   async getOperationsByPointId(pointId: string): Promise<any[]> {
     const [rows]: any = await pool.query(
       `SELECT po.*, pp.name AS product_name, s.tracking_code, s.status_label,
-              s.recipient_json, s.created_at AS shipment_created_at
+              s.sender_json, s.recipient_json, s.created_at AS shipment_created_at,
+              s.manifest_id, s.point_payment_method, s.provider_payload_json
        FROM point_operations po
        INNER JOIN point_products pp ON pp.id = po.product_id
        INNER JOIN shipments s ON s.id = po.shipment_id
@@ -1365,14 +1388,95 @@ export const TariffRepo = {
 
   async getAll(): Promise<any[]> {
     const [rows]: any = await pool.query(
-      `SELECT * FROM international_tariffs ORDER BY origin_country, dest_country, sort_order ASC`
+      `SELECT t.*, 
+              h_orig.name AS origin_hub_name, h_orig.city AS origin_hub_city, h_orig.code AS origin_hub_code,
+              h_dest.name AS dest_hub_name, h_dest.city AS dest_hub_city, h_dest.code AS dest_hub_code
+       FROM international_tariffs t
+       LEFT JOIN hubs h_orig ON h_orig.id = t.origin_hub_id
+       LEFT JOIN hubs h_dest ON h_dest.id = t.dest_hub_id
+       ORDER BY t.origin_country, t.dest_country, t.sort_order ASC`
     );
     return rows;
   },
 
   async getById(id: string): Promise<any | null> {
-    const [rows]: any = await pool.query(`SELECT * FROM international_tariffs WHERE id = ? LIMIT 1`, [id]);
+    const [rows]: any = await pool.query(
+      `SELECT t.*, 
+              h_orig.name AS origin_hub_name, h_orig.city AS origin_hub_city, h_orig.code AS origin_hub_code,
+              h_dest.name AS dest_hub_name, h_dest.city AS dest_hub_city, h_dest.code AS dest_hub_code
+       FROM international_tariffs t
+       LEFT JOIN hubs h_orig ON h_orig.id = t.origin_hub_id
+       LEFT JOIN hubs h_dest ON h_dest.id = t.dest_hub_id
+       WHERE t.id = ? LIMIT 1`,
+      [id]
+    );
     return rows[0] || null;
+  },
+
+  async create(data: any): Promise<any> {
+    const id = data.id || generateId('trf_');
+    await pool.query(
+      `INSERT INTO international_tariffs (
+        id, route_name, origin_country, origin_hub_id, dest_country, dest_hub_id,
+        product_type, delivery_type, product_name, description,
+        base_price, point_commission, hub_cost, max_weight_kg, extra_kg_price,
+        currency, transit_days_min, transit_days_max, is_active, sort_order
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        data.route_name || `${data.origin_country} -> ${data.dest_country}`,
+        data.origin_country,
+        data.origin_hub_id || null,
+        data.dest_country,
+        data.dest_hub_id || null,
+        data.product_type || 'parcel',
+        data.delivery_type || 'branch',
+        data.product_name,
+        data.description || null,
+        Number(data.base_price) || 0,
+        Number(data.point_commission) || (Number(data.base_price || 0) * 0.15),
+        Number(data.hub_cost) || 0,
+        Number(data.max_weight_kg) || 1.0,
+        Number(data.extra_kg_price) || 0,
+        data.currency || 'USD',
+        Number(data.transit_days_min) || 3,
+        Number(data.transit_days_max) || 7,
+        data.is_active !== undefined ? (data.is_active ? 1 : 0) : 1,
+        Number(data.sort_order) || 0
+      ]
+    );
+    return await this.getById(id);
+  },
+
+  async update(id: string, data: any): Promise<any> {
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    const allowed = [
+      'route_name', 'origin_country', 'origin_hub_id', 'dest_country', 'dest_hub_id',
+      'product_type', 'delivery_type', 'product_name', 'description',
+      'base_price', 'point_commission', 'hub_cost', 'max_weight_kg', 'extra_kg_price',
+      'currency', 'transit_days_min', 'transit_days_max', 'is_active', 'sort_order'
+    ];
+
+    for (const key of allowed) {
+      if (data[key] !== undefined) {
+        fields.push(`${key} = ?`);
+        values.push(key === 'is_active' ? (data[key] ? 1 : 0) : data[key]);
+      }
+    }
+
+    if (fields.length > 0) {
+      values.push(id);
+      await pool.query(`UPDATE international_tariffs SET ${fields.join(', ')} WHERE id = ?`, values);
+    }
+
+    return await this.getById(id);
+  },
+
+  async delete(id: string): Promise<boolean> {
+    await pool.query(`DELETE FROM international_tariffs WHERE id = ?`, [id]);
+    return true;
   }
 };
 
@@ -1383,23 +1487,75 @@ export const HubRepo = {
     return rows;
   },
 
+  async getAllAdmin(): Promise<any[]> {
+    const [rows]: any = await pool.query(`SELECT * FROM hubs ORDER BY country, city`);
+    return rows;
+  },
+
   async getById(id: string): Promise<any | null> {
     const [rows]: any = await pool.query(`SELECT * FROM hubs WHERE id = ? LIMIT 1`, [id]);
     return rows[0] || null;
+  },
+
+  async createOrUpdate(data: any): Promise<any> {
+    const id = data.id || generateId('hub_');
+    await pool.query(
+      `INSERT INTO hubs (
+        id, code, name, hub_type, country, city, state_province, postal_code,
+        address, latitude, longitude, timezone, manager_name, phone, email,
+        operating_hours, capacity_daily, is_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        code = VALUES(code),
+        name = VALUES(name),
+        hub_type = VALUES(hub_type),
+        country = VALUES(country),
+        city = VALUES(city),
+        state_province = VALUES(state_province),
+        postal_code = VALUES(postal_code),
+        address = VALUES(address),
+        latitude = VALUES(latitude),
+        longitude = VALUES(longitude),
+        timezone = VALUES(timezone),
+        manager_name = VALUES(manager_name),
+        phone = VALUES(phone),
+        email = VALUES(email),
+        operating_hours = VALUES(operating_hours),
+        capacity_daily = VALUES(capacity_daily),
+        is_active = VALUES(is_active)`,
+      [
+        id, data.code, data.name, data.hub_type || 'transit', data.country || 'US',
+        data.city, data.state_province || null, data.postal_code || '',
+        data.address, Number(data.latitude) || null, Number(data.longitude) || null,
+        data.timezone || 'America/Santo_Domingo', data.manager_name || null,
+        data.phone || null, data.email || null, data.operating_hours || 'Lun-Sáb 8:00-19:00',
+        Number(data.capacity_daily) || 500, data.is_active !== undefined ? (data.is_active ? 1 : 0) : 1
+      ]
+    );
+    return await this.getById(id);
   }
 };
 
-// 18. Sacas / Manifiestos de Consolidación (Regla 10+ Docs a RD)
+// 18. Valijas / Manifiestos de Consolidación (Regla 10+ Docs a RD)
 export const ManifestRepo = {
-  async getActiveOpenManifest(pointId: string, category: string = 'documents'): Promise<any> {
+  async getActiveOpenManifest(
+    pointId: string, 
+    category: string = 'documents',
+    originHubId: string = 'hub_bos_01',
+    destinationHubId: string = 'hub_sdq_01'
+  ): Promise<any> {
     const [existing]: any = await pool.query(
       `SELECT m.*,
-              (SELECT COUNT(*) FROM shipments s WHERE s.manifest_id = m.id) AS current_items_count
+              (SELECT COUNT(*) FROM shipments s WHERE s.manifest_id = m.id) AS current_items_count,
+              h_orig.name AS origin_hub_name, h_orig.city AS origin_hub_city,
+              h_dest.name AS destination_hub_name, h_dest.city AS destination_hub_city
        FROM point_manifests m
-       WHERE m.point_id = ? AND m.status = 'open' AND m.category = ?
+       LEFT JOIN hubs h_orig ON h_orig.id = m.origin_hub_id
+       LEFT JOIN hubs h_dest ON h_dest.id = m.destination_hub_id
+       WHERE m.point_id = ? AND m.status = 'open' AND m.category = ? AND m.destination_hub_id = ?
        ORDER BY m.created_at DESC
        LIMIT 1`,
-      [pointId, category]
+      [pointId, category, destinationHubId]
     );
 
     if (existing?.length > 0) {
@@ -1410,33 +1566,20 @@ export const ManifestRepo = {
       return manifest;
     }
 
-    // Crear nueva saca abierta automáticamente
+    // Crear nueva valija abierta automáticamente
     const manifestId = generateId('man_');
     const year = new Date().getFullYear();
     const randCode = crypto.randomInt(1000, 9999);
-    const manifestNumber = `MAN-${category === 'documents' ? 'DOC' : 'PAR'}-${year}-${randCode}`;
+    const prefix = destinationHubId === 'hub_mia_01' ? 'EXP' : (category === 'documents' ? 'DOC' : 'PAR');
+    const manifestNumber = `MAN-${prefix}-${year}-${randCode}`;
 
     await pool.query(
       `INSERT INTO point_manifests (id, manifest_number, point_id, origin_hub_id, destination_hub_id, category, total_items, min_items_threshold, status)
-       VALUES (?, ?, ?, 'hub_bos_01', 'hub_sdq_01', ?, 0, 10, 'open')`,
-      [manifestId, manifestNumber, pointId, category]
+       VALUES (?, ?, ?, ?, ?, ?, 0, 10, 'open')`,
+      [manifestId, manifestNumber, pointId, originHubId, destinationHubId, category]
     );
 
-    return {
-      id: manifestId,
-      manifest_number: manifestNumber,
-      point_id: pointId,
-      origin_hub_id: 'hub_bos_01',
-      destination_hub_id: 'hub_sdq_01',
-      category,
-      total_items: 0,
-      current_items_count: 0,
-      min_items_threshold: 10,
-      remaining_items: 10,
-      is_ready_to_close: false,
-      status: 'open',
-      created_at: new Date().toISOString()
-    };
+    return await this.getManifestById(manifestId);
   },
 
   async getManifestById(id: string): Promise<any | null> {
@@ -1517,11 +1660,11 @@ export const ManifestRepo = {
       [masterTracking, notes || null, manifestId]
     );
 
-    // Actualizar todos los envíos dentro de la saca
+    // Actualizar todos los envíos dentro de la valija
     await pool.query(
       `UPDATE shipments 
        SET status = 'at_hub', 
-           status_label = 'En Hub Internacional / Saca Consolidada',
+           status_label = 'En Hub Internacional / Valija Consolidada',
            master_tracking_code = ? 
        WHERE manifest_id = ?`,
       [masterTracking, manifestId]
@@ -1536,7 +1679,7 @@ export const ManifestRepo = {
           tracking_code: shp.tracking_code,
           status_code: 'at_hub',
           status_label: 'Consolidado en Hub',
-          description: `Consolidado en Manifiesto ${manifest.manifest_number} (Saca cerrada con ${manifest.current_items_count} envíos). Master Tracking: ${masterTracking}. En ruta a Hub Destino.`,
+          description: `Consolidado en Manifiesto ${manifest.manifest_number} (Valija cerrada con ${manifest.current_items_count} envíos). Master Tracking: ${masterTracking}. En ruta a Hub Destino.`,
           location: manifest.origin_hub_city || 'Boston Logistics Hub'
         });
       } catch {}
@@ -1579,7 +1722,7 @@ export const ManifestRepo = {
       [location, warehouseTracking, weight, data.notes?.trim() || null, manifestId]
     );
 
-    // Actualizar envíos dentro de la saca
+    // Actualizar envíos dentro de la valija
     await pool.query(
       `UPDATE shipments 
        SET status = 'at_hub', 
@@ -1607,10 +1750,81 @@ export const ManifestRepo = {
     return await this.getManifestById(manifestId);
   },
 
-  async calculateBrokerQuotes(weightKg: number, extraUnits: number = 0): Promise<any[]> {
+  async calculateBrokerQuotes(
+    weightKg: number, 
+    extraUnits: number = 0,
+    originHubId: string = 'hub_bos_01',
+    destHubId: string = 'hub_sdq_01'
+  ): Promise<any[]> {
     const weight = Math.max(0.5, Number(weightKg) || 5.0);
     const baseWeight = 5.0;
     const extraWeight = Math.max(0, weight - baseWeight);
+
+    // Corredor Inverso de Exportación: República Dominicana (SDQ) ➔ Hub Miami (HUB-MIA Doral, FL)
+    if (destHubId === 'hub_mia_01' || originHubId.includes('sdq') || originHubId === 'hub_sdq_luperon') {
+      const logihubBase = 36.00;
+      const logihubPerExtraKg = 3.50;
+      const logihubTotal = Math.round((logihubBase + extraWeight * logihubPerExtraKg) * 100) / 100;
+
+      const americargoBase = 44.00;
+      const americargoPerExtraKg = 3.80;
+      const americargoTotal = Math.round((americargoBase + extraWeight * americargoPerExtraKg) * 100) / 100;
+
+      const easypostBase = 50.00;
+      const easypostPerExtraKg = 4.20;
+      const easypostTotal = Math.round((easypostBase + extraWeight * easypostPerExtraKg) * 100) / 100;
+
+      return [
+        {
+          provider_code: 'logihub_intl',
+          courier_name: 'LogiHub Export Air Cargo',
+          service_name: 'Corredor Aéreo Export SDQ ➔ Hub Miami (Doral, FL)',
+          transit_days: '2-4 días hábiles',
+          rate_amount: logihubTotal,
+          currency: 'USD',
+          is_recommended: true,
+          tag: 'Carga Consolidada Directa a Miami',
+          is_live_api: true,
+          source: 'Contrato Corredor LogiHub Export',
+          per_kg_detail: `$${logihubBase.toFixed(2)} base (hasta 5kg) + $${logihubPerExtraKg.toFixed(2)}/kg adicional`,
+          total_weight: weight,
+          extra_units: extraUnits,
+          note: 'Recepción en Hub Miami (8200 NW 27th St, Doral). Conexión automática con USPS/FedEx/UPS para última milla a domicilio en USA.'
+        },
+        {
+          provider_code: 'americargo',
+          courier_name: 'AmeriCargo Air Express',
+          service_name: 'Vuelo Prioritario SDQ ➔ MIA Express',
+          transit_days: '1-2 días hábiles',
+          rate_amount: americargoTotal,
+          currency: 'USD',
+          is_recommended: false,
+          tag: 'Vuelo Diario Prioritario',
+          is_live_api: true,
+          source: 'Broker AmeriCargo Aviation',
+          per_kg_detail: `$${americargoBase.toFixed(2)} base (hasta 5kg) + $${americargoPerExtraKg.toFixed(2)}/kg adicional`,
+          total_weight: weight,
+          extra_units: extraUnits,
+          note: 'Despacho urgente hacia terminal de carga Doral, FL'
+        },
+        {
+          provider_code: 'easypost_global',
+          courier_name: 'EasyPost Global Cargo (DHL / FedEx Express)',
+          service_name: 'International Air Freight SDQ ➔ Miami Gateway',
+          transit_days: '2-3 días hábiles',
+          rate_amount: easypostTotal,
+          currency: 'USD',
+          is_recommended: false,
+          tag: 'Red Broker Multi-Carrier',
+          is_live_api: true,
+          source: 'EasyPost Global Gateway',
+          per_kg_detail: `$${easypostBase.toFixed(2)} base (hasta 5kg) + $${easypostPerExtraKg.toFixed(2)}/kg adicional`,
+          total_weight: weight,
+          extra_units: extraUnits,
+          note: 'Tránsito directo con integración aduanal USA'
+        }
+      ];
+    }
 
     // 1. LogiHub Internacional - Corredor Aéreo de Carga Consolidada B2B directo a Santo Domingo (HUB SDQ)
     const logihubBase = 36.00;
@@ -1871,17 +2085,123 @@ export const PointCashRepo = {
     );
   },
 
+  async getActiveShift(pointId: string): Promise<any> {
+    const [rows]: any = await pool.query(
+      `SELECT * FROM point_cash_shifts WHERE point_id = ? AND status = 'open' ORDER BY opened_at DESC LIMIT 1`,
+      [pointId]
+    );
+    return rows[0] || null;
+  },
+
+  async openShift(data: {
+    pointId: string;
+    employeeId?: string;
+    employeeName: string;
+    openingAmount: number;
+    notes?: string;
+    createdBy?: string;
+  }): Promise<any> {
+    const shiftId = generateId('csh_shift_');
+    await pool.query(
+      `INSERT INTO point_cash_shifts (id, point_id, employee_id, employee_name, opening_cash_amount, opening_notes, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'open')`,
+      [shiftId, data.pointId, data.employeeId || null, data.employeeName, data.openingAmount, data.notes || null]
+    );
+
+    await this.recordMovement({
+      pointId: data.pointId,
+      movementType: 'cash_opening',
+      amount: data.openingAmount,
+      currency: 'USD',
+      notes: `Fondo Caja Chica Inicial ($${Number(data.openingAmount).toFixed(2)}) - Apertura por ${data.employeeName}${data.notes ? ` - ${data.notes}` : ''}`,
+      createdBy: data.createdBy
+    });
+
+    return await this.getActiveShift(data.pointId);
+  },
+
+  async closeShift(data: {
+    shiftId: string;
+    pointId: string;
+    closedByEmployeeId?: string;
+    closedByName: string;
+    countedCash: number;
+    systemExpected: number;
+    notes?: string;
+    createdBy?: string;
+  }): Promise<any> {
+    const difference = Number(data.countedCash) - Number(data.systemExpected);
+    await pool.query(
+      `UPDATE point_cash_shifts
+       SET status = 'closed',
+           closed_at = NOW(),
+           closed_by_employee_id = ?,
+           closed_by_name = ?,
+           system_cash_expected = ?,
+           counted_cash_amount = ?,
+           difference_amount = ?,
+           closing_notes = ?
+       WHERE id = ? AND point_id = ?`,
+      [
+        data.closedByEmployeeId || null,
+        data.closedByName,
+        data.systemExpected,
+        data.countedCash,
+        difference,
+        data.notes || null,
+        data.shiftId,
+        data.pointId
+      ]
+    );
+
+    await this.recordMovement({
+      pointId: data.pointId,
+      movementType: 'cash_closing',
+      amount: -Number(data.countedCash),
+      currency: 'USD',
+      notes: `Cierre de Caja por ${data.closedByName} (Contado: $${Number(data.countedCash).toFixed(2)}, Esperado: $${Number(data.systemExpected).toFixed(2)}, Dif: $${difference.toFixed(2)})`,
+      createdBy: data.createdBy
+    });
+
+    const [rows]: any = await pool.query(`SELECT * FROM point_cash_shifts WHERE id = ?`, [data.shiftId]);
+    return rows[0];
+  },
+
+  async getShiftsHistory(pointId: string, limit: number = 20): Promise<any[]> {
+    const [rows]: any = await pool.query(
+      `SELECT * FROM point_cash_shifts WHERE point_id = ? ORDER BY opened_at DESC LIMIT ?`,
+      [pointId, limit]
+    );
+    return rows;
+  },
+
   async getDailySummary(pointId: string): Promise<any> {
+    const activeShift = await this.getActiveShift(pointId);
+
     const [cashRows]: any = await pool.query(
       `SELECT 
-         COALESCE(SUM(CASE WHEN movement_type = 'sale_cash' THEN amount ELSE 0 END), 0) AS cash_in_hand_today,
+         COALESCE(SUM(CASE WHEN movement_type = 'sale_cash' THEN amount ELSE 0 END), 0) AS cash_sales_today,
+         COALESCE(SUM(CASE WHEN movement_type = 'cash_opening' THEN amount ELSE 0 END), 0) AS opening_cash_today,
          COALESCE(SUM(CASE WHEN movement_type = 'sale_card' THEN amount ELSE 0 END), 0) AS card_sales_today,
-         COALESCE(SUM(amount), 0) AS total_revenue_today,
+         COALESCE(SUM(CASE WHEN movement_type IN ('sale_cash', 'sale_card') THEN amount ELSE 0 END), 0) AS total_revenue_today,
+         COALESCE(SUM(CASE WHEN movement_type IN ('sale_cash', 'cash_opening') THEN amount WHEN movement_type IN ('payout_commission', 'cash_drop', 'cash_closing') THEN -ABS(amount) ELSE 0 END), 0) AS current_drawer_cash,
          COUNT(*) AS movements_count_today
        FROM point_cash_register
        WHERE point_id = ? AND DATE(created_at) = CURDATE()`,
       [pointId]
     );
+
+    // Si hay turno activo, calcular ventas de efectivo desde que se abrió
+    let shiftCashSales = 0;
+    if (activeShift) {
+      const [shiftRows]: any = await pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS shift_cash 
+         FROM point_cash_register 
+         WHERE point_id = ? AND movement_type = 'sale_cash' AND created_at >= ?`,
+        [pointId, activeShift.opened_at]
+      );
+      shiftCashSales = Number(shiftRows[0]?.shift_cash || 0);
+    }
 
     const [allOperations]: any = await pool.query(
       `SELECT 
@@ -1893,14 +2213,22 @@ export const PointCashRepo = {
       [pointId]
     );
 
+    const openingCash = Number(activeShift?.opening_cash_amount || cashRows[0]?.opening_cash_today || 0);
+    const cashInHand = activeShift ? (openingCash + shiftCashSales) : Number(cashRows[0]?.cash_sales_today || 0);
+
     return {
-      cashInHandToday: Number(cashRows[0]?.cash_in_hand_today || 0),
+      cashInHandToday: cashInHand,
+      cashSalesToday: Number(cashRows[0]?.cash_sales_today || 0),
+      openingCashToday: openingCash,
+      shiftCashSalesToday: shiftCashSales,
       cardSalesToday: Number(cashRows[0]?.card_sales_today || 0),
       totalRevenueToday: Number(cashRows[0]?.total_revenue_today || 0),
+      currentDrawerCash: Number(cashRows[0]?.current_drawer_cash || 0),
       movementsCountToday: Number(cashRows[0]?.movements_count_today || 0),
       operationsToday: Number(allOperations[0]?.operations_today || 0),
       salesToday: Number(allOperations[0]?.sales_today || 0),
-      commissionsToday: Number(allOperations[0]?.commissions_today || 0)
+      commissionsToday: Number(allOperations[0]?.commissions_today || 0),
+      activeShift
     };
   },
 

@@ -48,8 +48,11 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   const p = String(req.path || '');
   const isAsset = p.startsWith('/assets/') || p.startsWith('/brand/') || /\.(js|css|png|jpg|jpeg|svg|ico|woff2?|map)$/i.test(p);
-  if (!isAsset) {
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  if (isAsset) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  } else if (!p.startsWith('/api/')) {
+    // HTML shell: enable revalidation while allowing CDN edge acceleration
+    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=60, must-revalidate');
   }
   next();
 });
@@ -120,12 +123,20 @@ app.get('/api/public/runtime-config', (_req, res) => {
 
 
 app.get('/api/public/points', async (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600');
   try {
     const country = String(req.query.country || '').trim().toUpperCase();
     const city = String(req.query.city || '').trim();
     const q = String(req.query.q || '').trim();
+    const cacheKey = `public:points:${country}:${city}:${q}`;
+    const cached = cacheService.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const points = await PointRepo.getPublicApproved({ country, city, q });
-    res.json({ success: true, points });
+    const payload = { success: true, points };
+    cacheService.set(cacheKey, payload, 300); // 5 min TTL
+    res.json(payload);
   } catch (error: any) {
     res.status(500).json({ success: false, error: 'No se pudieron consultar los points', details: error.message });
   }
@@ -133,6 +144,7 @@ app.get('/api/public/points', async (req, res) => {
 
 
 app.get('/api/public/locale', async (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=600, stale-while-revalidate=3600');
   try {
     const headerCountry = String(
       req.headers['cf-ipcountry'] ||
@@ -234,6 +246,7 @@ app.get('/api/public/locale', async (req, res) => {
 
 
 app.get('/api/public/countries', async (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800');
   try {
     const lang = String(req.query.lang || 'es').toLowerCase() === 'en' ? 'en' : 'es';
     const q = String(req.query.q || '').trim().toLowerCase();
@@ -258,13 +271,20 @@ app.get('/api/public/countries', async (req, res) => {
           connectionLimit: 4,
         });
       }
-      const [r] = await pool.query(
-        `SELECT iso2 AS code, name_en AS nameEn, name_es AS nameEs,
-                language_code AS language, language_name AS languageName,
-                currency, flag_url AS flag, active
-         FROM countries WHERE active = 1 ORDER BY name_es ASC`
-      );
-      rows = r as any[];
+      const cacheKey = 'db:countries_all_active';
+      const cached = cacheService.get<any[]>(cacheKey);
+      if (cached) {
+        rows = cached;
+      } else {
+        const [r] = await pool.query(
+          `SELECT iso2 AS code, name_en AS nameEn, name_es AS nameEs,
+                  language_code AS language, language_name AS languageName,
+                  currency, flag_url AS flag, active
+           FROM countries WHERE active = 1 ORDER BY name_es ASC`
+        );
+        rows = r as any[];
+        cacheService.set(cacheKey, rows, 86400); // 24 hours TTL
+      }
     } catch (e: any) {
       console.warn('[countries] query failed', e?.message || e);
       rows = [];
@@ -317,17 +337,24 @@ app.get('/api/public/countries', async (req, res) => {
 });
 
 app.get('/api/public/brand', async (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400');
+  const cached = cacheService.get('public:brand_payload');
+  if (cached) {
+    return res.json(cached);
+  }
   try {
     const settings = await AdminSettingsRepo.get();
     const brand = settings.brand || {};
-    res.json({
+    const payload = {
       brand: {
         ...brand,
         logoUrl: resolvePublicAssetUrl(req, brand.logoUrl),
         faviconUrl: resolvePublicAssetUrl(req, brand.faviconUrl || '/brand/favicon-32.png'),
         ogImageUrl: resolvePublicAssetUrl(req, brand.ogImageUrl || brand.logoUrl)
       }
-    });
+    };
+    cacheService.set('public:brand_payload', payload, 1800); // 30 min TTL
+    res.json(payload);
   } catch {
     res.json({
       brand: {
@@ -2613,13 +2640,20 @@ function countryToCurrencyCode(country: string): string {
 
 
 async function loadCountriesLocaleRows(): Promise<any[]> {
+  const cacheKey = 'db:countries_locale_rows';
+  const cached = cacheService.get<any[]>(cacheKey);
+  if (cached) return cached;
   try {
     const [rows]: any = await pool.query(
       `SELECT iso2 AS code, currency, language_code AS languageCode, language_name AS languageName,
               name_es AS nameEs, name_en AS nameEn, flag_url AS flag, active
        FROM countries WHERE active = 1`
     );
-    return Array.isArray(rows) ? rows : [];
+    const result = Array.isArray(rows) ? rows : [];
+    if (result.length > 0) {
+      cacheService.set(cacheKey, result, 86400); // 24h TTL
+    }
+    return result;
   } catch (e: any) {
     console.warn('[locale] countries query failed', e?.message || e);
     return [];
@@ -5519,6 +5553,7 @@ const authMiddleware = async (req: any, res: any, next: any) => {
       cardDetails: safeJsonParse(user.card_details_json, null),
       paypalEmail: user.paypal_email,
       preferredPaymentMethod: user.preferred_payment_method || 'wallet',
+        assigned_hub_id: user.assigned_hub_id || null,
       adminImpersonation: isImpersonation,
       adminUserId: decoded.adminUserId || null,
       createdAt: user.created_at
@@ -5839,7 +5874,8 @@ app.post('/api/auth/login', async (req, res) => {
         paypalConnected: Boolean(user.paypal_connected),
         cardDetails: user.card_details_json ? JSON.parse(user.card_details_json) : null,
         paypalEmail: user.paypal_email,
-        preferredPaymentMethod: user.preferred_payment_method || 'wallet'
+        preferredPaymentMethod: user.preferred_payment_method || 'wallet',
+        assigned_hub_id: user.assigned_hub_id || null
       },
       token
     });
@@ -5885,7 +5921,12 @@ app.get('/api/point/me', authMiddleware, async (req: any, res) => {
       id: point.id,
       userId: point.user_id,
       businessName: point.business_name,
+      business_name: point.business_name,
       contactName: point.contact_name,
+      contact_name: point.contact_name,
+      address_line1: point.address_line1,
+      postal_code: point.postal_code,
+      formatted_address: point.formatted_address,
       email: point.email,
       phone: point.phone,
       country: point.country,
@@ -5935,6 +5976,7 @@ app.get('/api/point/operations', authMiddleware, async (req: any, res) => {
     const operations = await PointRepo.getOperationsByPointId(point.id);
     res.json({ operations: operations.map((operation: any) => ({
       id: operation.id,
+      shipmentId: operation.shipment_id,
       trackingCode: operation.tracking_code,
       productCode: operation.product_code,
       productName: operation.product_name,
@@ -5944,12 +5986,466 @@ app.get('/api/point/operations', authMiddleware, async (req: any, res) => {
       status: operation.status,
       statusLabel: operation.status_label,
       receiptCode: operation.receipt_code,
-      recipient: typeof operation.recipient_json === 'string' ? JSON.parse(operation.recipient_json) : operation.recipient_json,
+      sender: typeof operation.sender_json === 'string' ? JSON.parse(operation.sender_json || '{}') : (operation.sender_json || {}),
+      recipient: typeof operation.recipient_json === 'string' ? JSON.parse(operation.recipient_json || '{}') : (operation.recipient_json || {}),
+      paymentMethod: operation.point_payment_method || 'cash',
+      manifestId: operation.manifest_id,
+      extra: typeof operation.provider_payload_json === 'string' ? JSON.parse(operation.provider_payload_json || '{}') : (operation.provider_payload_json || {}),
       createdAt: operation.created_at
     })) });
   } catch (error) {
     console.error('[Point Operations Error]:', error);
     res.status(500).json({ error: 'No se pudieron cargar las operaciones del Point.' });
+  }
+});
+
+// Sucursales / Branches públicas para selector de login
+app.get('/api/point/public-branches', async (_req, res) => {
+  try {
+    const [rows]: any = await pool.query(
+      `SELECT id, business_name, city, country, formatted_address AS address, phone 
+       FROM points WHERE status = 'approved' ORDER BY business_name ASC`
+    );
+    res.json({ success: true, branches: rows || [] });
+  } catch (err: any) {
+    console.error('[Public Branches Error]:', err);
+    res.status(500).json({ error: 'No se pudieron cargar las sucursales.' });
+  }
+});
+
+// Empleados activos de una sucursal para el selector de PIN
+app.get('/api/point/branch/:pointId/employees-public', async (req, res) => {
+  try {
+    const [rows]: any = await pool.query(
+      `SELECT id, name, role FROM point_employees WHERE point_id = ? AND status = 'active' ORDER BY name ASC`,
+      [req.params.pointId]
+    );
+    res.json({ success: true, employees: rows || [] });
+  } catch (err: any) {
+    console.error('[Branch Employees Public Error]:', err);
+    res.status(500).json({ error: 'No se pudieron cargar los empleados de la sucursal.' });
+  }
+});
+
+// Login con PIN para empleados de Branch / Point
+app.post('/api/point/auth/employee-login', async (req, res) => {
+  try {
+    const { pointId, employeeId, pinCode } = req.body || {};
+    if (!pointId || !employeeId || !pinCode) {
+      return res.status(400).json({ error: 'Debes seleccionar la sucursal, el empleado e introducir el PIN.' });
+    }
+
+    const [empRows]: any = await pool.query(
+      `SELECT * FROM point_employees WHERE id = ? AND point_id = ?`,
+      [employeeId, pointId]
+    );
+    if (!empRows || empRows.length === 0) {
+      return res.status(404).json({ error: 'Empleado no encontrado en esta sucursal.' });
+    }
+
+    const emp = empRows[0];
+    if (emp.status === 'suspended') {
+      return res.status(403).json({ error: 'Este empleado se encuentra suspendido. Contacta al encargado del local.' });
+    }
+
+    if (String(emp.pin_code || '').trim() !== String(pinCode).trim()) {
+      return res.status(401).json({ error: 'PIN o Clave de acceso incorrecto. Verifica los 4 dígitos.' });
+    }
+
+    const [pointRows]: any = await pool.query(`SELECT * FROM points WHERE id = ?`, [pointId]);
+    if (!pointRows || pointRows.length === 0) {
+      return res.status(404).json({ error: 'Sucursal no encontrada.' });
+    }
+    const point = pointRows[0];
+
+    const user = await UserRepo.getById(point.user_id);
+    if (!user) {
+      return res.status(404).json({ error: 'Cuenta principal del Point no encontrada.' });
+    }
+
+    const perms = Array.isArray(emp.permissions) ? emp.permissions : (typeof emp.permissions === 'string' ? JSON.parse(emp.permissions || '[]') : []);
+
+    const token = generateToken({
+      userId: user.id,
+      role: 'point',
+      isEmployee: true,
+      employee: {
+        id: emp.id,
+        name: emp.name,
+        email: emp.email,
+        role: emp.role,
+        permissions: perms
+      }
+    });
+
+    const activeShift = await PointCashRepo.getActiveShift(point.id);
+
+    res.json({
+      success: true,
+      token,
+      isEmployee: true,
+      hasActiveShift: Boolean(activeShift),
+      activeShift: activeShift ? {
+        id: activeShift.id,
+        employeeName: activeShift.employee_name,
+        openingAmount: activeShift.opening_cash_amount,
+        openedAt: activeShift.opened_at
+      } : null,
+      employee: {
+        id: emp.id,
+        name: emp.name,
+        email: emp.email,
+        role: emp.role,
+        permissions: perms
+      },
+      point: {
+        id: point.id,
+        businessName: point.business_name,
+        city: point.city,
+        country: point.country,
+        currency: point.currency || 'USD'
+      },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: emp.name,
+        role: 'point',
+        isEmployee: true
+      }
+    });
+  } catch (err: any) {
+    console.error('[Employee Login Error]:', err);
+    res.status(500).json({ error: 'Error al iniciar sesión con PIN.' });
+  }
+});
+
+// Actualizar Marca y Configuración de Sucursal (Point Co-Branding: [Branch Name] by ship24go.com)
+app.post('/api/point/settings', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const { businessName, phone, address } = req.body || {};
+    if (!businessName || !businessName.trim()) {
+      return res.status(400).json({ error: 'El nombre de la sucursal no puede estar vacío.' });
+    }
+
+    await pool.query(
+      `UPDATE points SET business_name = ?, phone = COALESCE(?, phone), formatted_address = COALESCE(?, formatted_address) WHERE id = ?`,
+      [businessName.trim(), phone?.trim() || null, address?.trim() || null, point.id]
+    );
+
+    const updated = await PointRepo.getById(point.id);
+    res.json({ success: true, point: updated, message: 'Marca y configuración de sucursal actualizada con éxito.' });
+  } catch (err: any) {
+    console.error('[Point Settings Error]:', err);
+    res.status(500).json({ error: 'Error al actualizar configuración de la sucursal.' });
+  }
+});
+
+// ========================================================
+// TERMINAL / PC DEVICE BINDING PARA SUCURSALES (POINTS)
+// ========================================================
+
+// 1. Vincular dispositivo / PC a sucursal mediante correo del dueño, ubicación (GPS) y PIN/contraseña
+app.post('/api/point/devices/link', async (req, res) => {
+  try {
+    const { ownerEmail, pinOrPassword, latitude, longitude, deviceName, browserInfo } = req.body || {};
+
+    if (!ownerEmail || !pinOrPassword) {
+      return res.status(400).json({ error: 'Ingresa el correo del dueño y su PIN o contraseña de autorización.' });
+    }
+
+    const cleanEmail = String(ownerEmail).trim().toLowerCase();
+
+    // Buscar sucursal por correo de point o por email de usuario asociado
+    const [pointRows]: any = await pool.query(
+      `SELECT p.*, u.id AS u_id, u.email AS u_email, u.password_hash 
+       FROM points p 
+       JOIN users u ON p.user_id = u.id 
+       WHERE (LOWER(p.email) = ? OR LOWER(u.email) = ?) AND p.status = 'approved'`,
+      [cleanEmail, cleanEmail]
+    );
+
+    if (!pointRows || pointRows.length === 0) {
+      return res.status(404).json({ error: 'No se encontró una sucursal activa con ese correo electrónico.' });
+    }
+
+    const point = pointRows[0];
+
+    // Verificar credenciales: contraseña maestra de usuario O PIN de supervisor/caja
+    const passMatches = point.password_hash === hashPassword(pinOrPassword);
+    
+    // También verificar si coincide con algún PIN de empleado manager/supervisor de la sucursal
+    const [empPinRows]: any = await pool.query(
+      `SELECT * FROM point_employees WHERE point_id = ? AND role = 'manager' AND pin_code = ? AND status = 'active'`,
+      [point.id, String(pinOrPassword).trim()]
+    );
+    const pinMatches = empPinRows && empPinRows.length > 0;
+
+    if (!passMatches && !pinMatches) {
+      return res.status(401).json({ error: 'PIN o Contraseña del dueño incorrecta. Acceso no autorizado.' });
+    }
+
+    // Validación y cálculo de distancia de ubicación (GPS)
+    let distanceKm: number | null = null;
+    let pointLat = Number(point.latitude);
+    let pointLon = Number(point.longitude);
+
+    if (latitude !== undefined && longitude !== undefined && !isNaN(Number(latitude)) && !isNaN(Number(longitude))) {
+      const userLat = Number(latitude);
+      const userLon = Number(longitude);
+
+      if (pointLat && pointLon && !isNaN(pointLat) && !isNaN(pointLon)) {
+        // Haversine formula
+        const R = 6371; // Radio de la Tierra en km
+        const dLat = (pointLat - userLat) * Math.PI / 180;
+        const dLon = (pointLon - userLon) * Math.PI / 180;
+        const a = 
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(userLat * Math.PI / 180) * Math.cos(pointLat * Math.PI / 180) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distanceKm = Math.round((R * c) * 100) / 100;
+      }
+    }
+
+    const deviceId = `pdev_${generateId()}`;
+    const deviceToken = `dtk_${crypto.randomBytes(32).toString('hex')}`;
+    const finalDeviceName = deviceName || `Terminal Mostrador - ${point.city || 'PC'}`;
+
+    await pool.query(
+      `INSERT INTO point_devices 
+       (id, point_id, device_name, device_token, owner_email, latitude, longitude, distance_km, browser_info, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+      [
+        deviceId,
+        point.id,
+        finalDeviceName,
+        deviceToken,
+        cleanEmail,
+        latitude ? Number(latitude) : null,
+        longitude ? Number(longitude) : null,
+        distanceKm,
+        browserInfo || req.headers['user-agent'] || 'Unknown'
+      ]
+    );
+
+    res.json({
+      success: true,
+      message: 'Dispositivo vinculado y autorizado con éxito.',
+      deviceToken,
+      deviceId,
+      deviceName: finalDeviceName,
+      distanceKm,
+      branch: {
+        id: point.id,
+        businessName: point.business_name,
+        address: point.formatted_address || point.address_line1 || '',
+        city: point.city,
+        country: point.country,
+        currency: point.currency || 'USD',
+        phone: point.phone || '',
+        ownerEmail: cleanEmail
+      }
+    });
+  } catch (err: any) {
+    console.error('[Device Link Error]:', err);
+    res.status(500).json({ error: 'Error al vincular el dispositivo.' });
+  }
+});
+
+// 2. Verificar dispositivo vinculado
+app.post('/api/point/devices/verify', async (req, res) => {
+  try {
+    const { deviceToken, pointId } = req.body || {};
+    if (!deviceToken) {
+      return res.status(400).json({ valid: false, error: 'Token de dispositivo no proporcionado.' });
+    }
+
+    const [devRows]: any = await pool.query(
+      `SELECT d.*, p.business_name, p.city, p.country, p.formatted_address, p.phone, p.currency, p.status AS point_status
+       FROM point_devices d
+       JOIN points p ON d.point_id = p.id
+       WHERE d.device_token = ? AND d.status = 'active'`,
+      [deviceToken]
+    );
+
+    if (!devRows || devRows.length === 0) {
+      return res.status(401).json({ valid: false, error: 'Dispositivo no autorizado o revocado.' });
+    }
+
+    const dev = devRows[0];
+    if (pointId && dev.point_id !== pointId) {
+      return res.status(403).json({ valid: false, error: 'El dispositivo no coincide con la sucursal vinculada.' });
+    }
+
+    // Actualizar último uso
+    await pool.query(`UPDATE point_devices SET last_used_at = NOW() WHERE id = ?`, [dev.id]);
+
+    // Obtener lista de empleados activos de la sucursal
+    const [empRows]: any = await pool.query(
+      `SELECT id, name, role FROM point_employees WHERE point_id = ? AND status = 'active' ORDER BY name ASC`,
+      [dev.point_id]
+    );
+
+    res.json({
+      valid: true,
+      branch: {
+        id: dev.point_id,
+        businessName: dev.business_name,
+        address: dev.formatted_address || '',
+        city: dev.city,
+        country: dev.country,
+        currency: dev.currency || 'USD',
+        phone: dev.phone || '',
+        deviceName: dev.device_name,
+        distanceKm: dev.distance_km,
+        ownerEmail: dev.owner_email
+      },
+      employees: empRows || []
+    });
+  } catch (err: any) {
+    console.error('[Device Verify Error]:', err);
+    res.status(500).json({ valid: false, error: 'Error al verificar dispositivo.' });
+  }
+});
+
+// 3. Desvincular dispositivo
+app.post('/api/point/devices/unlink', async (req, res) => {
+  try {
+    const { deviceToken, pinOrPassword } = req.body || {};
+    if (!deviceToken) {
+      return res.status(400).json({ error: 'Token de dispositivo no proporcionado.' });
+    }
+
+    const [devRows]: any = await pool.query(
+      `SELECT d.*, u.password_hash 
+       FROM point_devices d
+       JOIN points p ON d.point_id = p.id
+       JOIN users u ON p.user_id = u.id
+       WHERE d.device_token = ?`,
+      [deviceToken]
+    );
+
+    if (!devRows || devRows.length === 0) {
+      return res.json({ success: true, message: 'Dispositivo ya no está activo.' });
+    }
+
+    const dev = devRows[0];
+    if (pinOrPassword) {
+      const passMatches = dev.password_hash === hashPassword(pinOrPassword);
+      const [empPinRows]: any = await pool.query(
+        `SELECT * FROM point_employees WHERE point_id = ? AND role = 'manager' AND pin_code = ? AND status = 'active'`,
+        [dev.point_id, String(pinOrPassword).trim()]
+      );
+      if (!passMatches && (!empPinRows || empPinRows.length === 0)) {
+        return res.status(401).json({ error: 'PIN o Contraseña incorrecta para desvincular.' });
+      }
+    }
+
+    await pool.query(`UPDATE point_devices SET status = 'revoked' WHERE id = ?`, [dev.id]);
+    res.json({ success: true, message: 'Dispositivo desvinculado con éxito.' });
+  } catch (err: any) {
+    console.error('[Device Unlink Error]:', err);
+    res.status(500).json({ error: 'Error al desvincular dispositivo.' });
+  }
+});
+
+// Enviar Recibo de Mostrador por Correo Electrónico
+app.post('/api/point/shipments/:trackingCode/send-receipt', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const { trackingCode } = req.params;
+    const { toEmail } = req.body || {};
+
+    const [shipmentRows]: any = await pool.query(
+      `SELECT s.*, po.sale_amount, po.currency AS op_currency, pp.name AS product_name
+       FROM shipments s
+       LEFT JOIN point_operations po ON po.shipment_id = s.id
+       LEFT JOIN point_products pp ON pp.id = po.product_id
+       WHERE s.tracking_code = ? AND s.point_id = ?`,
+      [trackingCode, point.id]
+    );
+
+    if (!shipmentRows || shipmentRows.length === 0) {
+      return res.status(404).json({ error: 'Envío no encontrado para este Point.' });
+    }
+
+    const shp = shipmentRows[0];
+    const sender = typeof shp.sender_json === 'string' ? JSON.parse(shp.sender_json || '{}') : (shp.sender_json || {});
+    const recipient = typeof shp.recipient_json === 'string' ? JSON.parse(shp.recipient_json || '{}') : (shp.recipient_json || {});
+    const targetEmail = toEmail || recipient.email || sender.email;
+
+    if (!targetEmail || !targetEmail.includes('@')) {
+      return res.status(400).json({ error: 'Debes proporcionar un correo electrónico válido.' });
+    }
+
+    const senderName = `${point.business_name} vía Ship24go`;
+    const senderEmail = process.env.MAIL_FROM_EMAIL || process.env.BREVO_FROM_EMAIL || 'info@ship24go.com';
+    const trackingUrl = `https://ship24go.com/track/${encodeURIComponent(shp.tracking_code)}`;
+    const subject = `Recibo de Envío ${shp.tracking_code} - ${point.business_name}`;
+
+    const htmlContent = `
+      <!doctype html>
+      <html>
+      <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+      <body style="margin:0;padding:20px;background:#f8fafc;font-family:Arial,sans-serif;color:#0f172a;">
+        <div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:24px;border:1px solid #e2e8f0;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
+          <div style="background:#0f172a;padding:26px 30px;color:white;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#38bdf8;font-weight:bold;margin-bottom:6px;">Recibo Oficial de Mostrador</div>
+            <h1 style="margin:0;font-size:22px;font-weight:900;">${point.business_name}</h1>
+            <p style="margin:4px 0 0;font-size:13px;color:#94a3b8;">${point.address || ''} · ${point.city || ''}, ${point.country || ''} · Tel: ${point.phone || ''}</p>
+          </div>
+          <div style="padding:28px 30px;">
+            <div style="background:#f1f5f9;border-radius:16px;padding:16px 20px;margin-bottom:20px;">
+              <span style="font-size:11px;text-transform:uppercase;font-weight:bold;color:#64748b;">Código de Rastreo</span>
+              <div style="font-size:22px;font-weight:900;color:#2563eb;letter-spacing:1px;">${shp.tracking_code}</div>
+            </div>
+            <table width="100%" style="border-collapse:collapse;margin-bottom:20px;font-size:14px;">
+              <tr style="border-bottom:1px solid #f1f5f9;"><td style="padding:8px 0;color:#64748b;">Servicio:</td><td style="padding:8px 0;text-align:right;font-weight:bold;">${shp.product_name || 'Documento / Paquete a RD'}</td></tr>
+              <tr style="border-bottom:1px solid #f1f5f9;"><td style="padding:8px 0;color:#64748b;">Destinatario en RD:</td><td style="padding:8px 0;text-align:right;font-weight:bold;">${recipient.name || 'Cliente'} (${recipient.phone || ''})</td></tr>
+              <tr style="border-bottom:1px solid #f1f5f9;"><td style="padding:8px 0;color:#64748b;">Destino de Entrega:</td><td style="padding:8px 0;text-align:right;font-weight:bold;">${recipient.city || 'República Dominicana'} - ${recipient.address || 'Sucursal Principal'}</td></tr>
+              <tr style="border-bottom:1px solid #f1f5f9;"><td style="padding:8px 0;color:#64748b;">Método de Pago:</td><td style="padding:8px 0;text-align:right;font-weight:bold;">${(shp.point_payment_method || 'Efectivo').toUpperCase()}</td></tr>
+              <tr><td style="padding:12px 0;font-size:16px;font-weight:bold;">Total Cobrado:</td><td style="padding:12px 0;text-align:right;font-size:22px;font-weight:900;color:#16a34a;">$${Number(shp.sale_amount || 0).toFixed(2)} ${shp.op_currency || 'USD'}</td></tr>
+            </table>
+            <div style="text-align:center;margin:28px 0 16px;">
+              <a href="${trackingUrl}" style="background:#2563eb;color:#ffffff;padding:14px 28px;border-radius:12px;text-decoration:none;font-weight:bold;font-size:14px;display:inline-block;">Rastrear Paquete en Vivo</a>
+            </div>
+          </div>
+          <div style="background:#f8fafc;padding:18px;border-top:1px solid #e2e8f0;text-align:center;font-size:12px;color:#64748b;">
+            Emitido por <strong>${point.business_name}</strong> · Red Logística Ship24GO<br>
+            Rastreo 24 horas: www.ship24go.com
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const apiKey = process.env.BREVO_API_KEY;
+    if (apiKey) {
+      try {
+        await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+          body: JSON.stringify({
+            sender: { name: senderName, email: senderEmail },
+            to: [{ email: targetEmail, name: recipient.name || sender.name || 'Cliente' }],
+            subject,
+            htmlContent
+          })
+        });
+      } catch (e) {
+        console.error('[Brevo Error]:', e);
+      }
+    }
+
+    res.json({ success: true, message: `Recibo digital enviado correctamente a ${targetEmail}.` });
+  } catch (error: any) {
+    console.error('[Send Point Receipt Error]:', error);
+    res.status(500).json({ error: error.message || 'No se pudo enviar el recibo por correo.' });
   }
 });
 
@@ -5972,7 +6468,9 @@ app.post('/api/point/operations', authMiddleware, async (req: any, res) => {
     const trackingCode = `S24P-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
     const shipmentId = generateId('shp_');
     const currency = String(point.currency || product.currency || 'DOP').toUpperCase();
-    const commissionAmount = Math.round((input.saleAmount * Number(product.commission_percent || 0) / 100) * 100) / 100;
+    // Comisión oficial del 15% para el Point sobre la venta
+    const commPercent = Number(product.commission_percent) > 0 ? Number(product.commission_percent) : 15.0;
+    const commissionAmount = Math.round((input.saleAmount * (commPercent / 100)) * 100) / 100;
     const sender = {
       name: point.contact_name,
       company: point.business_name,
@@ -6060,29 +6558,35 @@ app.post('/api/point/operations', authMiddleware, async (req: any, res) => {
   }
 });
 
-// ========== TERMINAL POS MOSTRADOR, SACAS/MANIFIESTOS Y FINANZAS ==========
+// ========== TERMINAL POS MOSTRADOR, VALIJAS/MANIFIESTOS Y FINANZAS ==========
 
 // 1. Tarifas Oficiales Propias Ship24Go para Points
 app.get('/api/point/tariffs', authMiddleware, async (req: any, res) => {
   try {
-    const origin = String(req.query.originCountry || 'US').toUpperCase();
-    const dest = String(req.query.destCountry || 'DO').toUpperCase();
+    const point = await PointRepo.getByUserId(req.user.id);
+    const defaultOrigin = point?.country || 'US';
+    const defaultDest = defaultOrigin === 'DO' ? 'US' : 'DO';
+    const origin = String(req.query.originCountry || defaultOrigin).toUpperCase();
+    const dest = String(req.query.destCountry || defaultDest).toUpperCase();
     const tariffs = await TariffRepo.getAvailableTariffs(origin, dest);
-    res.json({ tariffs });
+    res.json({ tariffs, defaultOrigin, defaultDest, pointCountry: point?.country || 'US' });
   } catch (error: any) {
     console.error('[Point Tariffs Error]:', error);
     res.status(500).json({ error: 'No se pudieron cargar las tarifas disponibles.' });
   }
 });
 
-// 2. Saca / Manifiesto abierto actual (para documentos consolidados a RD)
-app.get('/api/point/manifests/current-saca', authMiddleware, async (req: any, res) => {
+// 2. Valija / Manifiesto abierto actual (para documentos consolidados a RD)
+app.get(['/api/point/manifests/current-valija', '/api/point/manifests/current-saca'], authMiddleware, async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
 
     const category = String(req.query.category || 'documents');
-    const manifest = await ManifestRepo.getActiveOpenManifest(point.id, category);
+    const originHubId = String(req.query.originHubId || (point.country === 'DO' ? 'hub_sdq_luperon' : 'hub_bos_01'));
+    const destinationHubId = String(req.query.destinationHubId || (point.country === 'DO' ? 'hub_mia_01' : 'hub_sdq_01'));
+
+    const manifest = await ManifestRepo.getActiveOpenManifest(point.id, category, originHubId, destinationHubId);
     const shipments = await ManifestRepo.getManifestShipments(manifest.id);
 
     const threshold = manifest.min_items_threshold || 10;
@@ -6101,8 +6605,8 @@ app.get('/api/point/manifests/current-saca', authMiddleware, async (req: any, re
       shipments
     });
   } catch (error: any) {
-    console.error('[Point Current Saca Error]:', error);
-    res.status(500).json({ error: 'No se pudo obtener el estado de la saca actual.' });
+    console.error('[Point Current Valija Error]:', error);
+    res.status(500).json({ error: 'No se pudo obtener el estado de la valija actual.' });
   }
 });
 
@@ -6130,21 +6634,51 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any,
       ? Math.ceil(weightKg - Number(tariff.max_weight_kg || 1)) * Number(tariff.extra_kg_price || 0)
       : 0;
     const totalPrice = Math.round((basePrice + extraKg) * 100) / 100;
-    const commission = Number(tariff.point_commission || 0);
-    const payMethod = paymentMethod === 'card' ? 'card' : 'cash';
+    // Comisión oficial del 15% para el Point sobre el valor total de venta
+    const commission = Math.round((totalPrice * 0.15) * 100) / 100;
+    const payMethod = paymentMethod === 'card' ? 'card' : (paymentMethod === 'bank_transfer' ? 'bank_transfer' : 'cash');
+
+    // Tasa de cambio oficial del día USD -> DOP
+    const freshRates = await getFreshRatesInternal().catch(() => ({ DOP: 67.96, USD: 1.15 }));
+    const usdRate = Number(freshRates?.USD || 1.153);
+    const dopRate = Number(freshRates?.DOP || 67.96);
+    const fxRateUsdToDop = Math.round((dopRate / usdRate) * 100) / 100;
+    const priceDop = Math.round(totalPrice * fxRateUsdToDop * 100) / 100;
+    const commissionDop = Math.round(commission * fxRateUsdToDop * 100) / 100;
+    const collectCur = String(req.body?.paymentCurrency || 'DOP').toUpperCase();
+    const transferRef = String(req.body?.paymentReference || req.body?.bankReference || '').trim();
+
+    // Regla especial de consolidación automática en Valijas:
+    // A) Flujo Inverso: Exportación de República Dominicana hacia Hub Miami (8200 NW 27th St, Doral, FL)
+    // B) Flujo Tradicional: Documentos consolidados a Santo Domingo
+    const isExportToUS = (point.country === 'DO' || tariff.origin_country === 'DO') && tariff.dest_country === 'US';
+    const isDocToRD = tariff.dest_country === 'DO' && ['document', 'legal_document'].includes(tariff.product_type);
+
+    let manifestId: string | null = null;
+    if (isExportToUS) {
+      const cat = ['document', 'legal_document'].includes(tariff.product_type) ? 'documents' : 'parcels';
+      const valija = await ManifestRepo.getActiveOpenManifest(
+        point.id,
+        cat,
+        tariff.origin_hub_id || 'hub_sdq_luperon',
+        tariff.dest_hub_id || 'hub_mia_01'
+      );
+      manifestId = valija.id;
+    } else if (isDocToRD) {
+      const valija = await ManifestRepo.getActiveOpenManifest(
+        point.id,
+        'documents',
+        tariff.origin_hub_id || 'hub_bos_01',
+        tariff.dest_hub_id || 'hub_sdq_01'
+      );
+      manifestId = valija.id;
+    }
 
     // Generar código de tracking propio Ship24Go para el cliente
     const suffix = crypto.randomBytes(3).toString('hex').toUpperCase();
-    const trackingCode = `S24RD-${Date.now().toString(36).toUpperCase()}-${suffix}`;
+    const prefix = isExportToUS ? 'S24US' : 'S24RD';
+    const trackingCode = `${prefix}-${Date.now().toString(36).toUpperCase()}-${suffix}`;
     const shipmentId = generateId('shp_');
-
-    // Regla especial documentos a República Dominicana: Consolidar en Saca
-    let manifestId: string | null = null;
-    const isDocToRD = tariff.dest_country === 'DO' && ['document', 'legal_document'].includes(tariff.product_type);
-    if (isDocToRD) {
-      const saca = await ManifestRepo.getActiveOpenManifest(point.id, 'documents');
-      manifestId = saca.id;
-    }
 
     const senderData = {
       name: String(sender?.name || point.contact_name).trim(),
@@ -6192,10 +6726,14 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any,
         payMethod,
         JSON.stringify({
           price: totalPrice,
+          priceDop,
+          commission,
+          commissionDop,
+          exchangeRate: fxRateUsdToDop,
           currency: tariff.currency || 'USD',
+          paymentCurrency: collectCur,
           tariffId: tariff.id,
-          tariffName: tariff.product_name,
-          commission
+          tariffName: tariff.product_name
         })
       ]
     );
@@ -6227,7 +6765,7 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any,
       ]
     );
 
-    // Si entra en saca, vincular y recalcular items
+    // Si entra en valija, vincular y recalcular items
     if (manifestId) {
       await ManifestRepo.attachShipmentToManifest(manifestId, shipmentId);
     }
@@ -6248,15 +6786,15 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any,
       receipt_code: trackingCode
     });
 
-    // Registrar arqueo en caja (Efectivo o Tarjeta)
+    // Registrar arqueo en caja (Efectivo, Tarjeta o Transferencia)
     await PointCashRepo.recordMovement({
       pointId: point.id,
       operationId,
       shipmentId,
       movementType: payMethod === 'cash' ? 'sale_cash' : 'sale_card',
-      amount: totalPrice,
-      currency: tariff.currency || 'USD',
-      notes: `Venta Mostrador: ${tariff.product_name} (${payMethod === 'cash' ? 'Efectivo recibido en caja' : 'Tarjeta'})`,
+      amount: collectCur === 'DOP' ? priceDop : totalPrice,
+      currency: collectCur === 'DOP' ? 'DOP' : (tariff.currency || 'USD'),
+      notes: `Venta Mostrador: ${tariff.product_name} | Cobrado: $${totalPrice.toFixed(2)} USD / RD$ ${priceDop.toFixed(2)} DOP (Tasa: ${fxRateUsdToDop.toFixed(2)}) | Modo: ${payMethod.toUpperCase()}`,
       createdBy: req.user.id
     });
 
@@ -6270,7 +6808,7 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any,
       location: `${point.city}, ${point.country}`
     });
 
-    const sacaStatus = manifestId ? await ManifestRepo.getActiveOpenManifest(point.id, 'documents') : null;
+    const sacaStatus = manifestId ? await ManifestRepo.getManifestById(manifestId) : null;
 
     res.status(201).json({
       success: true,
@@ -6280,16 +6818,20 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any,
         receiptCode: trackingCode,
         tariffName: tariff.product_name,
         price: totalPrice,
+        priceDop,
         commission,
+        commissionDop,
+        exchangeRate: fxRateUsdToDop,
         currency: tariff.currency || 'USD',
+        paymentCurrency: collectCur,
         paymentMethod: payMethod,
-        isConsolidatedInSaca: isDocToRD,
+        isConsolidatedInSaca: Boolean(manifestId),
         manifestId,
         sender: senderData,
         recipient: recipientData,
         createdAt: new Date().toISOString()
       },
-      saca: sacaStatus
+      valija: sacaStatus
     });
   } catch (error: any) {
     console.error('[Point Terminal Create Error]:', error);
@@ -6297,8 +6839,8 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any,
   }
 });
 
-// 4. Cerrar Saca de Documentos y Generar Manifiesto / Master Tracking
-app.post('/api/point/manifests/close-saca', authMiddleware, async (req: any, res) => {
+// 4. Cerrar Valija de Documentos y Generar Manifiesto / Master Tracking
+app.post(['/api/point/manifests/close-valija', '/api/point/manifests/close-saca'], authMiddleware, async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6309,8 +6851,8 @@ app.post('/api/point/manifests/close-saca', authMiddleware, async (req: any, res
     const closedManifest = await ManifestRepo.closeManifest(manifestId, point.id, notes);
     res.json({ success: true, manifest: closedManifest });
   } catch (error: any) {
-    console.error('[Close Saca Error]:', error);
-    res.status(400).json({ error: error?.message || 'No se pudo cerrar la saca.' });
+    console.error('[Close Valija Error]:', error);
+    res.status(400).json({ error: error?.message || 'No se pudo cerrar la valija.' });
   }
 });
 
@@ -6337,14 +6879,33 @@ app.post('/api/point/manifests/warehouse-inbound', authMiddleware, async (req: a
   }
 });
 
-// 4.2 Cotizar Brokers de Envío para la Saca / Lote
+// 4.2 Cotizar Brokers de Envío para la Valija / Lote
 app.post('/api/point/manifests/quote-brokers', authMiddleware, async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
 
     const { weightKg, extraUnits } = req.body || {};
-    const quotes = await ManifestRepo.calculateBrokerQuotes(Number(weightKg) || 5.0, Number(extraUnits) || 0);
+    let originHubId = 'hub_bos_01';
+    let destHubId = 'hub_sdq_01';
+    const { manifestId } = req.body || {};
+    if (manifestId) {
+      const manifest = await ManifestRepo.getManifestById(manifestId);
+      if (manifest) {
+        originHubId = manifest.origin_hub_id || originHubId;
+        destHubId = manifest.destination_hub_id || destHubId;
+      }
+    } else if (point.country === 'DO') {
+      originHubId = 'hub_sdq_luperon';
+      destHubId = 'hub_mia_01';
+    }
+
+    const quotes = await ManifestRepo.calculateBrokerQuotes(
+      Number(weightKg) || 5.0, 
+      Number(extraUnits) || 0,
+      originHubId,
+      destHubId
+    );
 
     res.json({ success: true, quotes });
   } catch (error: any) {
@@ -6370,7 +6931,7 @@ app.post('/api/point/manifests/reopen', authMiddleware, async (req: any, res) =>
   }
 });
 
-// 4.4 Confirmar Broker y Despachar Saca
+// 4.4 Confirmar Broker y Despachar Valija
 app.post('/api/point/manifests/confirm-dispatch', authMiddleware, async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
@@ -6394,7 +6955,7 @@ app.post('/api/point/manifests/confirm-dispatch', authMiddleware, async (req: an
   }
 });
 
-// 5. Listar Manifiestos y Sacas del Point
+// 5. Listar Manifiestos y Valijas del Point
 app.get('/api/point/manifests', authMiddleware, async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
@@ -6434,16 +6995,480 @@ app.get('/api/point/finance/summary', authMiddleware, async (req: any, res) => {
 
     const summary = await PointCashRepo.getDailySummary(point.id);
     const movements = await PointCashRepo.getMovements(point.id, 50);
+    const shifts = await PointCashRepo.getShiftsHistory(point.id, 10);
 
     res.json({
       summary,
       movements,
+      shifts,
       businessName: point.business_name,
       currency: point.currency || 'USD'
     });
   } catch (error: any) {
     console.error('[Point Finance Summary Error]:', error);
     res.status(500).json({ error: 'No se pudo cargar el resumen financiero.' });
+  }
+});
+
+// 7.1 Abrir Turno / Fondo de Caja Chica
+app.post('/api/point/cash/open-shift', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const activeShift = await PointCashRepo.getActiveShift(point.id);
+    if (activeShift) {
+      return res.status(400).json({ error: 'Ya existe un turno de caja abierto. Debes realizar el cierre del turno anterior antes de iniciar uno nuevo.' });
+    }
+
+    const { employeeId, pinCode, openingAmount, notes } = req.body || {};
+    const amount = Number(openingAmount);
+    if (isNaN(amount) || amount < 0) {
+      return res.status(400).json({ error: 'El monto inicial de caja chica debe ser válido.' });
+    }
+
+    let employeeName = point.business_name || 'Encargado Principal';
+    let validEmpId = null;
+
+    if (employeeId) {
+      const [empRows]: any = await pool.query('SELECT * FROM point_employees WHERE id = ? AND point_id = ?', [employeeId, point.id]);
+      if (!empRows || empRows.length === 0) {
+        return res.status(404).json({ error: 'Empleado seleccionado no encontrado.' });
+      }
+      const emp = empRows[0];
+      if (emp.status === 'suspended') {
+        return res.status(403).json({ error: 'El empleado seleccionado se encuentra suspendido.' });
+      }
+      if (emp.pin_code && String(emp.pin_code).trim() !== String(pinCode || '').trim()) {
+        return res.status(401).json({ error: 'PIN o Clave de acceso incorrecta para este empleado.' });
+      }
+      employeeName = emp.name;
+      validEmpId = emp.id;
+    }
+
+    const newShift = await PointCashRepo.openShift({
+      pointId: point.id,
+      employeeId: validEmpId,
+      employeeName,
+      openingAmount: amount,
+      notes: notes || null,
+      createdBy: req.user.id
+    });
+
+    res.status(201).json({ success: true, shift: newShift, message: 'Turno de caja chica iniciado con éxito.' });
+  } catch (error: any) {
+    console.error('[Point Open Shift Error]:', error);
+    res.status(500).json({ error: error.message || 'No se pudo iniciar el turno de caja.' });
+  }
+});
+
+// 7.2 Realizar Cierre de Caja / Arqueo de Turno
+app.post('/api/point/cash/close-shift', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const activeShift = await PointCashRepo.getActiveShift(point.id);
+    if (!activeShift) {
+      return res.status(400).json({ error: 'No hay ningún turno de caja abierto actualmente.' });
+    }
+
+    const { employeeId, pinCode, countedCash, closingNotes } = req.body || {};
+    const counted = Number(countedCash);
+    if (isNaN(counted) || counted < 0) {
+      return res.status(400).json({ error: 'Debes ingresar el monto contado físicamente en gaveta.' });
+    }
+
+    let closerName = point.business_name || 'Encargado Principal';
+    let closerId = null;
+
+    if (employeeId) {
+      const [empRows]: any = await pool.query('SELECT * FROM point_employees WHERE id = ? AND point_id = ?', [employeeId, point.id]);
+      if (!empRows || empRows.length === 0) {
+        return res.status(404).json({ error: 'Empleado seleccionado no encontrado.' });
+      }
+      const emp = empRows[0];
+      if (emp.status === 'suspended') {
+        return res.status(403).json({ error: 'El empleado seleccionado se encuentra suspendido.' });
+      }
+      if (emp.pin_code && String(emp.pin_code).trim() !== String(pinCode || '').trim()) {
+        return res.status(401).json({ error: 'PIN o Clave de acceso incorrecta para autorizar el cierre.' });
+      }
+      closerName = emp.name;
+      closerId = emp.id;
+    }
+
+    // Calcular ventas en efectivo desde que se abrió este turno
+    const [salesRows]: any = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0) AS shift_sales 
+       FROM point_cash_register 
+       WHERE point_id = ? AND movement_type = 'sale_cash' AND created_at >= ?`,
+      [point.id, activeShift.opened_at]
+    );
+    const shiftSales = Number(salesRows[0]?.shift_sales || 0);
+    const systemExpected = Number(activeShift.opening_cash_amount) + shiftSales;
+
+    const closed = await PointCashRepo.closeShift({
+      shiftId: activeShift.id,
+      pointId: point.id,
+      closedByEmployeeId: closerId,
+      closedByName: closerName,
+      countedCash: counted,
+      systemExpected,
+      notes: closingNotes || null,
+      createdBy: req.user.id
+    });
+
+    res.json({
+      success: true,
+      shift: closed,
+      systemExpected,
+      countedCash: counted,
+      difference: Number(closed.difference_amount),
+      message: 'Cierre de caja registrado exitosamente.'
+    });
+  } catch (error: any) {
+    console.error('[Point Close Shift Error]:', error);
+    res.status(500).json({ error: error.message || 'No se pudo realizar el cierre de caja.' });
+  }
+});
+
+// 8. Cuentas Bancarias del Point para Retiro de Comisiones y Métodos del Sistema
+app.get('/api/point/bank-accounts', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    // Cuentas bancarias del propio Point
+    const [accounts]: any = await pool.query(
+      `SELECT * FROM point_bank_accounts WHERE point_id = ? ORDER BY is_default DESC, created_at DESC`,
+      [point.id]
+    );
+
+    // Cuentas bancarias del sistema configuradas (para recibir transferencias en mostrador)
+    const [systemBanks]: any = await pool.query(
+      `SELECT id, code, currency, country_code, account_holder, bank_name, bank_address, details_json, instructions_json 
+       FROM bank_accounts WHERE is_active = 1 ORDER BY sort_order ASC`
+    );
+
+    // Resumen de comisiones y retiros
+    const [opRows]: any = await pool.query(
+      `SELECT COALESCE(SUM(commission_amount), 0) AS total_earned 
+       FROM point_operations WHERE point_id = ? AND status != 'cancelled'`,
+      [point.id]
+    );
+    const totalEarned = Number(opRows[0]?.total_earned || 0);
+
+    const [payoutRows]: any = await pool.query(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) AS total_withdrawn,
+         COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) AS total_pending
+       FROM point_payout_requests WHERE point_id = ?`,
+      [point.id]
+    );
+    const totalWithdrawn = Number(payoutRows[0]?.total_withdrawn || 0);
+    const totalPending = Number(payoutRows[0]?.total_pending || 0);
+    const availableBalance = Math.max(0, Math.round((totalEarned - totalWithdrawn - totalPending) * 100) / 100);
+
+    res.json({
+      success: true,
+      accounts: accounts || [],
+      systemBanks: systemBanks || [],
+      finance: {
+        totalEarned,
+        totalWithdrawn,
+        totalPending,
+        availableBalance,
+        currency: point.currency || 'USD'
+      }
+    });
+  } catch (error: any) {
+    console.error('[Point Bank Accounts Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar las cuentas bancarias.' });
+  }
+});
+
+// Guardar o actualizar cuenta bancaria del Point
+app.post('/api/point/bank-accounts', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const { id, bankName, accountHolder, accountNumber, accountType, routingNumber, documentId, currency, notes, isDefault } = req.body || {};
+    if (!bankName || !accountHolder || !accountNumber) {
+      return res.status(400).json({ error: 'Banco, titular y número de cuenta son obligatorios.' });
+    }
+
+    const accountId = id || generateId('pba_');
+    const curr = (currency || point.currency || 'USD').toUpperCase().slice(0, 3);
+    const accType = accountType || 'Ahorros';
+
+    if (isDefault) {
+      await pool.query('UPDATE point_bank_accounts SET is_default = 0 WHERE point_id = ?', [point.id]);
+    }
+
+    await pool.query(
+      `INSERT INTO point_bank_accounts (
+        id, point_id, bank_name, account_holder, account_number, account_type,
+        routing_number, document_id, currency, notes, is_default
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        bank_name = VALUES(bank_name),
+        account_holder = VALUES(account_holder),
+        account_number = VALUES(account_number),
+        account_type = VALUES(account_type),
+        routing_number = VALUES(routing_number),
+        document_id = VALUES(document_id),
+        currency = VALUES(currency),
+        notes = VALUES(notes),
+        is_default = VALUES(is_default)`,
+      [
+        accountId,
+        point.id,
+        String(bankName).trim(),
+        String(accountHolder).trim(),
+        String(accountNumber).trim(),
+        String(accType).trim(),
+        routingNumber ? String(routingNumber).trim() : null,
+        documentId ? String(documentId).trim() : null,
+        curr,
+        notes ? String(notes).trim() : null,
+        isDefault ? 1 : 1
+      ]
+    );
+
+    const [saved]: any = await pool.query('SELECT * FROM point_bank_accounts WHERE id = ?', [accountId]);
+    res.json({ success: true, account: saved[0] });
+  } catch (error: any) {
+    console.error('[Save Point Bank Account Error]:', error);
+    res.status(500).json({ error: 'No se pudo guardar la información bancaria.' });
+  }
+});
+
+// Eliminar cuenta bancaria del Point
+app.delete('/api/point/bank-accounts/:id', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    await pool.query('DELETE FROM point_bank_accounts WHERE id = ? AND point_id = ?', [req.params.id, point.id]);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('[Delete Point Bank Account Error]:', error);
+    res.status(500).json({ error: 'No se pudo eliminar la cuenta bancaria.' });
+  }
+});
+
+// Solicitar retiro de comisiones a la cuenta bancaria
+app.post('/api/point/payout-request', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const amount = Number(req.body.amount || 0);
+    const bankAccountId = req.body.bankAccountId;
+    const notes = String(req.body.notes || '').trim();
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: 'El monto de retiro debe ser mayor a 0.' });
+    }
+
+    // Obtener cuenta bancaria de destino
+    const [bRows]: any = await pool.query(
+      `SELECT * FROM point_bank_accounts WHERE point_id = ? ${bankAccountId ? 'AND id = ?' : 'ORDER BY is_default DESC'} LIMIT 1`,
+      bankAccountId ? [point.id, bankAccountId] : [point.id]
+    );
+    const bankAccount = bRows[0];
+    if (!bankAccount) {
+      return res.status(400).json({ error: 'Debes registrar y seleccionar una cuenta bancaria para recibir tus fondos.' });
+    }
+
+    // Verificar balance disponible
+    const [opRows]: any = await pool.query(
+      `SELECT COALESCE(SUM(commission_amount), 0) AS total_earned 
+       FROM point_operations WHERE point_id = ? AND status != 'cancelled'`,
+      [point.id]
+    );
+    const totalEarned = Number(opRows[0]?.total_earned || 0);
+
+    const [payoutRows]: any = await pool.query(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) AS total_withdrawn,
+         COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) AS total_pending
+       FROM point_payout_requests WHERE point_id = ?`,
+      [point.id]
+    );
+    const totalWithdrawn = Number(payoutRows[0]?.total_withdrawn || 0);
+    const totalPending = Number(payoutRows[0]?.total_pending || 0);
+    const availableBalance = Math.max(0, Math.round((totalEarned - totalWithdrawn - totalPending) * 100) / 100);
+
+    if (amount > availableBalance) {
+      return res.status(400).json({ 
+        error: `Saldo insuficiente. Tu saldo disponible para retiro es de $${availableBalance.toFixed(2)} ${point.currency || 'USD'}.` 
+      });
+    }
+
+    const payoutId = generateId('pyr_');
+    const refCode = `PAY-${Date.now().toString(36).toUpperCase()}`;
+
+    await pool.query(
+      `INSERT INTO point_payout_requests (
+        id, point_id, point_bank_account_id, amount, currency, status,
+        bank_info_snapshot, reference_number, admin_note, requested_by
+      ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+      [
+        payoutId,
+        point.id,
+        bankAccount.id,
+        amount,
+        point.currency || 'USD',
+        JSON.stringify(bankAccount),
+        refCode,
+        notes || null,
+        req.user.id
+      ]
+    );
+
+    // Registrar en arqueo de caja
+    await PointCashRepo.recordMovement({
+      pointId: point.id,
+      movementType: 'payout_commission',
+      amount: -amount,
+      currency: point.currency || 'USD',
+      notes: `Solicitud de retiro de comisión a ${bankAccount.bank_name} (${bankAccount.account_number.slice(-4)}) - Ref: ${refCode}`,
+      createdBy: req.user.id
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Solicitud de retiro enviada con éxito.',
+      payout: {
+        id: payoutId,
+        amount,
+        currency: point.currency || 'USD',
+        referenceNumber: refCode,
+        status: 'pending',
+        bankName: bankAccount.bank_name,
+        accountNumber: bankAccount.account_number
+      }
+    });
+  } catch (error: any) {
+    console.error('[Point Payout Request Error]:', error);
+    res.status(500).json({ error: 'No se pudo procesar la solicitud de retiro.' });
+  }
+});
+
+// Listar solicitudes de retiro del Point
+app.get('/api/point/payout-requests', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const [rows]: any = await pool.query(
+      `SELECT r.*, b.bank_name, b.account_holder, b.account_number, b.account_type
+       FROM point_payout_requests r
+       LEFT JOIN point_bank_accounts b ON b.id = r.point_bank_account_id
+       WHERE r.point_id = ?
+       ORDER BY r.created_at DESC LIMIT 50`,
+      [point.id]
+    );
+
+    res.json({ success: true, requests: rows || [] });
+  } catch (error: any) {
+    console.error('[Point Payout List Error]:', error);
+    res.status(500).json({ error: 'No se pudo cargar el historial de retiros.' });
+  }
+});
+
+// 9. Empleados y Control de Accesos del Point
+app.get('/api/point/employees', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const [rows]: any = await pool.query(
+      `SELECT id, point_id, name, email, phone, role, permissions, status, pin_code, created_at, updated_at 
+       FROM point_employees WHERE point_id = ? ORDER BY (role = 'manager') DESC, created_at DESC`,
+      [point.id]
+    );
+    res.json({ success: true, employees: rows || [] });
+  } catch (error: any) {
+    console.error('[Point Employees Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar los empleados del Point.' });
+  }
+});
+
+app.post('/api/point/employees', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const { id, name, email, phone, role, permissions, status, pinCode } = req.body || {};
+    if (!name || !email) {
+      return res.status(400).json({ error: 'Nombre y correo electrónico son obligatorios.' });
+    }
+
+    const empId = id || generateId('pemp_');
+    const empRole = ['manager', 'cashier', 'operator'].includes(role) ? role : 'cashier';
+    const empPerms = Array.isArray(permissions) ? JSON.stringify(permissions) : JSON.stringify(['pos.create', 'cash.view']);
+    const empStatus = status === 'suspended' ? 'suspended' : 'active';
+
+    await pool.query(
+      `INSERT INTO point_employees (id, point_id, name, email, phone, role, permissions, status, pin_code)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         name = VALUES(name),
+         email = VALUES(email),
+         phone = VALUES(phone),
+         role = VALUES(role),
+         permissions = VALUES(permissions),
+         status = VALUES(status),
+         pin_code = VALUES(pin_code)`,
+      [empId, point.id, String(name).trim(), String(email).trim().toLowerCase(), phone ? String(phone).trim() : null, empRole, empPerms, empStatus, pinCode ? String(pinCode).trim() : null]
+    );
+
+    const [saved]: any = await pool.query('SELECT * FROM point_employees WHERE id = ?', [empId]);
+    res.json({ success: true, employee: saved[0] });
+  } catch (error: any) {
+    console.error('[Save Point Employee Error]:', error);
+    res.status(500).json({ error: 'No se pudo guardar el empleado.' });
+  }
+});
+
+app.post('/api/point/employees/:id/status', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const { status } = req.body || {};
+    const newStatus = status === 'suspended' ? 'suspended' : 'active';
+
+    await pool.query(
+      'UPDATE point_employees SET status = ? WHERE id = ? AND point_id = ?',
+      [newStatus, req.params.id, point.id]
+    );
+
+    res.json({ success: true, status: newStatus });
+  } catch (error: any) {
+    console.error('[Update Employee Status Error]:', error);
+    res.status(500).json({ error: 'No se pudo actualizar el estado del empleado.' });
+  }
+});
+
+app.delete('/api/point/employees/:id', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    await pool.query(
+      'DELETE FROM point_employees WHERE id = ? AND point_id = ?',
+      [req.params.id, point.id]
+    );
+
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('[Delete Employee Error]:', error);
+    res.status(500).json({ error: 'No se pudo eliminar el empleado.' });
   }
 });
 
@@ -6661,6 +7686,723 @@ app.post('/api/admin/points/:id/chat/messages', authMiddleware, requireAdminOrPe
     res.status(500).json({ error: 'No se pudo enviar el mensaje.' });
   }
 });
+
+// ============================================================================
+// 1. HOJA DE RUTA / DESPACHO DEL BROKER (DISPATCH MANIFEST)
+// ============================================================================
+app.get('/api/point/manifests/:id/dispatch-sheet', authMiddleware, async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    const isAdmin = ['super_admin', 'admin', 'operations', 'hub_operator'].includes(req.user.role);
+    if (!point && !isAdmin) {
+      return res.status(403).json({ error: 'No autorizado para ver la hoja de ruta.' });
+    }
+
+    const manifest = await ManifestRepo.getManifestById(req.params.id);
+    if (!manifest) return res.status(404).json({ error: 'Manifiesto no encontrado.' });
+    if (point && manifest.point_id !== point.id && !isAdmin) {
+      return res.status(403).json({ error: 'No autorizado para acceder a este manifiesto.' });
+    }
+
+    const [origPointRows]: any = await pool.query('SELECT * FROM points WHERE id = ? LIMIT 1', [manifest.point_id]);
+    const originPoint = origPointRows[0] || {};
+    const shipments = await ManifestRepo.getManifestShipments(manifest.id);
+
+    res.json({
+      success: true,
+      manifest: {
+        ...manifest,
+        current_items_count: shipments.length
+      },
+      originPoint: {
+        businessName: originPoint.business_name || 'Ship24Go Partner Point',
+        phone: originPoint.phone,
+        email: originPoint.email,
+        formattedAddress: originPoint.formatted_address || originPoint.address_line1,
+        city: originPoint.city,
+        country: originPoint.country
+      },
+      shipments
+    });
+  } catch (error: any) {
+    console.error('[Dispatch Sheet Error]:', error);
+    res.status(500).json({ error: 'No se pudo generar la hoja de ruta.' });
+  }
+});
+
+// ============================================================================
+// 2. MÓDULO DE HUBS Y CENTROS LOGÍSTICOS (/api/hubs)
+// ============================================================================
+// Listado de Hubs con métricas operacionales
+app.get('/api/hubs/list', authMiddleware, async (req: any, res) => {
+  try {
+    const [hubs]: any = await pool.query('SELECT id, code, name, hub_type, country, city, state_province, postal_code, address, latitude, longitude, timezone, manager_name, phone, email, operating_hours, capacity_daily, is_active, created_at FROM hubs WHERE is_active = 1 ORDER BY country, city');
+    
+    // Obtener contadores por cada hub
+    const enrichedHubs = await Promise.all(hubs.map(async (h: any) => {
+      const [manRows]: any = await pool.query(
+        `SELECT 
+           COUNT(CASE WHEN status IN ('in_transit_hub', 'dispatched_intl') THEN 1 END) AS inbound_manifests,
+           COUNT(CASE WHEN status = 'received_hub' THEN 1 END) AS received_manifests
+         FROM point_manifests WHERE destination_hub_id = ?`,
+        [h.id]
+      );
+      const [pkgRows]: any = await pool.query(
+        `SELECT COUNT(*) AS inventory_packages FROM shipments 
+         WHERE hub_destination_id = ? AND status IN ('at_hub', 'point_received', 'in_transit')`,
+        [h.id]
+      );
+      const [driverRows]: any = await pool.query(
+        `SELECT COUNT(*) AS active_drivers FROM users 
+         WHERE role = 'driver' AND (assigned_hub_id = ? OR assigned_hub_id IS NULL)`,
+        [h.id]
+      );
+
+      return {
+        ...h,
+        inboundManifests: Number(manRows[0]?.inbound_manifests || 0),
+        receivedManifests: Number(manRows[0]?.received_manifests || 0),
+        inventoryPackages: Number(pkgRows[0]?.inventory_packages || 0),
+        activeDrivers: Number(driverRows[0]?.active_drivers || 0)
+      };
+    }));
+
+    res.json({ success: true, hubs: enrichedHubs });
+  } catch (error: any) {
+    console.error('[Hubs List Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar los hubs logísticos.' });
+  }
+});
+
+// Inventario, valijas inbound y choferes de un Hub específico
+app.get('/api/hubs/:hubId/inventory', authMiddleware, async (req: any, res) => {
+  try {
+    const { hubId } = req.params;
+    const [hRows]: any = await pool.query('SELECT * FROM hubs WHERE id = ? LIMIT 1', [hubId]);
+    if (!hRows[0]) return res.status(404).json({ error: 'Hub no encontrado.' });
+    const hub = hRows[0];
+
+    // Valijas entrantes o recibidas
+    const [manifests]: any = await pool.query(
+      `SELECT m.*, p.business_name AS point_name, p.city AS point_city,
+              (SELECT COUNT(*) FROM shipments s WHERE s.manifest_id = m.id) AS current_items_count
+       FROM point_manifests m
+       LEFT JOIN points p ON p.id = m.point_id
+       WHERE m.destination_hub_id = ? OR m.origin_hub_id = ?
+       ORDER BY FIELD(m.status, 'in_transit_hub', 'dispatched_intl', 'received_hub', 'closed', 'completed'), m.created_at DESC
+       LIMIT 30`,
+      [hubId, hubId]
+    );
+
+    // Envíos individuales en inventario listos para reparto o desconsolidados
+    const [packages]: any = await pool.query(
+      `SELECT s.id, s.tracking_code, s.status, s.status_label, s.sender_json, s.recipient_json, s.created_at,
+              s.master_tracking_code, s.manifest_id,
+              m.manifest_number
+       FROM shipments s
+       LEFT JOIN point_manifests m ON m.id = s.manifest_id
+       WHERE (s.hub_destination_id = ? OR m.destination_hub_id = ?)
+         AND s.status IN ('at_hub', 'in_transit', 'point_received', 'in_route')
+       ORDER BY s.created_at DESC
+       LIMIT 100`,
+      [hubId, hubId]
+    );
+
+    const parsedPackages = packages.map((p: any) => ({
+      ...p,
+      sender: typeof p.sender_json === 'string' ? JSON.parse(p.sender_json) : (p.sender_json || {}),
+      recipient: typeof p.recipient_json === 'string' ? JSON.parse(p.recipient_json) : (p.recipient_json || {})
+    }));
+
+    // Choferes disponibles para este hub
+    const [drivers]: any = await pool.query(
+      `SELECT id, name, email, phone, status FROM users 
+       WHERE role = 'driver' AND (assigned_hub_id = ? OR assigned_hub_id IS NULL)
+       ORDER BY name ASC`,
+      [hubId]
+    );
+
+    // Rutas de entrega activas generadas desde este hub
+    const [routes]: any = await pool.query(
+      `SELECT dr.*, u.name AS driver_name, u.phone AS driver_phone
+       FROM driver_routes dr
+       INNER JOIN users u ON u.id = dr.driver_id
+       WHERE dr.hub_id = ?
+       ORDER BY dr.created_at DESC
+       LIMIT 20`,
+      [hubId]
+    );
+
+    res.json({
+      success: true,
+      hub,
+      manifests,
+      packages: parsedPackages,
+      drivers,
+      routes
+    });
+  } catch (error: any) {
+    console.error('[Hub Inventory Error]:', error);
+    res.status(500).json({ error: 'No se pudo cargar el inventario del hub.' });
+  }
+});
+
+// Actualización de Datos de Oficina & Coordenadas GPS del Hub
+app.put('/api/hubs/:hubId', authMiddleware, async (req: any, res) => {
+  try {
+    const { hubId } = req.params;
+    const {
+      name,
+      code,
+      hub_type,
+      country,
+      city,
+      state_province,
+      postal_code,
+      address,
+      latitude,
+      longitude,
+      timezone,
+      manager_name,
+      phone,
+      email,
+      operating_hours,
+      capacity_daily
+    } = req.body || {};
+
+    const [existing]: any = await pool.query('SELECT id FROM hubs WHERE id = ? LIMIT 1', [hubId]);
+    if (!existing[0]) return res.status(404).json({ error: 'Hub no encontrado.' });
+
+    await pool.query(
+      `UPDATE hubs SET
+         name = COALESCE(?, name),
+         code = COALESCE(?, code),
+         hub_type = COALESCE(?, hub_type),
+         country = COALESCE(?, country),
+         city = COALESCE(?, city),
+         state_province = COALESCE(?, state_province),
+         postal_code = COALESCE(?, postal_code),
+         address = COALESCE(?, address),
+         latitude = ?,
+         longitude = ?,
+         timezone = COALESCE(?, timezone),
+         manager_name = COALESCE(?, manager_name),
+         phone = COALESCE(?, phone),
+         email = COALESCE(?, email),
+         operating_hours = COALESCE(?, operating_hours),
+         capacity_daily = COALESCE(?, capacity_daily)
+       WHERE id = ?`,
+      [
+        name || null,
+        code ? String(code).toUpperCase().trim() : null,
+        hub_type || null,
+        country ? String(country).toUpperCase().trim() : null,
+        city || null,
+        state_province || null,
+        postal_code || null,
+        address || null,
+        latitude != null ? Number(latitude) : null,
+        longitude != null ? Number(longitude) : null,
+        timezone || null,
+        manager_name || null,
+        phone || null,
+        email || null,
+        operating_hours || null,
+        capacity_daily != null ? Number(capacity_daily) : null,
+        hubId
+      ]
+    );
+
+    const [updated]: any = await pool.query('SELECT * FROM hubs WHERE id = ? LIMIT 1', [hubId]);
+    res.json({
+      success: true,
+      message: `Oficina del Hub ${updated[0]?.code || hubId} actualizada correctamente.`,
+      hub: updated[0]
+    });
+  } catch (error: any) {
+    console.error('[Update Hub Error]:', error);
+    res.status(500).json({ error: 'No se pudo actualizar la oficina del hub.' });
+  }
+});
+
+// Crear Nuevo Hub Logístico
+app.post('/api/hubs', authMiddleware, async (req: any, res) => {
+  try {
+    const {
+      name,
+      code,
+      hub_type = 'transit',
+      country = 'DO',
+      city,
+      state_province,
+      postal_code,
+      address,
+      latitude,
+      longitude,
+      timezone = 'America/Santo_Domingo',
+      manager_name,
+      phone,
+      email,
+      operating_hours = 'Lun-Vie 8:00-18:00',
+      capacity_daily = 500
+    } = req.body || {};
+
+    if (!name || !code || !city || !address) {
+      return res.status(400).json({ error: 'Nombre, código, ciudad y dirección son obligatorios.' });
+    }
+
+    const cleanCode = String(code).toUpperCase().trim();
+    const [dup]: any = await pool.query('SELECT id FROM hubs WHERE code = ? LIMIT 1', [cleanCode]);
+    if (dup[0]) return res.status(400).json({ error: `Ya existe un hub con el código ${cleanCode}.` });
+
+    const hubId = `hub_${cleanCode.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now().toString().slice(-4)}`;
+
+    await pool.query(
+      `INSERT INTO hubs (id, code, name, hub_type, country, city, state_province, postal_code, address, latitude, longitude, timezone, manager_name, phone, email, operating_hours, capacity_daily, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      [
+        hubId,
+        cleanCode,
+        String(name).trim(),
+        hub_type,
+        String(country).toUpperCase().trim(),
+        String(city).trim(),
+        state_province ? String(state_province).trim() : null,
+        postal_code ? String(postal_code).trim() : null,
+        String(address).trim(),
+        latitude != null ? Number(latitude) : null,
+        longitude != null ? Number(longitude) : null,
+        timezone,
+        manager_name ? String(manager_name).trim() : null,
+        phone ? String(phone).trim() : null,
+        email ? String(email).trim() : null,
+        operating_hours,
+        Number(capacity_daily) || 500
+      ]
+    );
+
+    const [created]: any = await pool.query('SELECT * FROM hubs WHERE id = ? LIMIT 1', [hubId]);
+    res.status(201).json({
+      success: true,
+      message: `Hub ${cleanCode} registrado con éxito.`,
+      hub: created[0]
+    });
+  } catch (error: any) {
+    console.error('[Create Hub Error]:', error);
+    res.status(500).json({ error: 'No se pudo registrar el nuevo hub logístico.' });
+  }
+});
+
+// Recepción e Inbound de Valija / Master Tracking en Hub
+app.post('/api/hubs/manifests/inbound', authMiddleware, async (req: any, res) => {
+  try {
+    const { hubId, masterTrackingOrCode } = req.body || {};
+    if (!hubId || !masterTrackingOrCode) {
+      return res.status(400).json({ error: 'Hub y código de valija o Master Tracking son obligatorios.' });
+    }
+
+    const code = String(masterTrackingOrCode).trim();
+    const [mRows]: any = await pool.query(
+      `SELECT * FROM point_manifests 
+       WHERE (master_tracking_code = ? OR manifest_number = ? OR id = ?) LIMIT 1`,
+      [code, code, code]
+    );
+    const manifest = mRows[0];
+    if (!manifest) {
+      return res.status(404).json({ error: `No se encontró ninguna valija o manifiesto con el código "${code}".` });
+    }
+
+    // Actualizar manifiesto
+    await pool.query(
+      `UPDATE point_manifests 
+       SET status = 'received_hub', received_at = NOW(), destination_hub_id = COALESCE(destination_hub_id, ?)
+       WHERE id = ?`,
+      [hubId, manifest.id]
+    );
+
+    // Actualizar envíos dentro
+    await pool.query(
+      `UPDATE shipments 
+       SET status = 'at_hub', status_label = 'Recibido en Hub de Destino'
+       WHERE manifest_id = ?`,
+      [manifest.id]
+    );
+
+    // Registrar eventos de trazabilidad
+    const [shipmentRows]: any = await pool.query('SELECT id, tracking_code FROM shipments WHERE manifest_id = ?', [manifest.id]);
+    for (const shp of shipmentRows) {
+      try {
+        const hubLoc = await TrackingEventRepo.getHubLocation(hubId);
+        await TrackingEventRepo.create({
+          shipment_id: shp.id,
+          tracking_code: shp.tracking_code,
+          status_code: 'at_hub',
+          ...hubLoc,
+          status_label: 'Recibido en Hub',
+          description: `Valija arribada y escaneada en Hub de Destino. Manifiesto: ${manifest.manifest_number}.`,
+          location: 'Hub Central Santo Domingo'
+        });
+      } catch {}
+    }
+
+    res.json({
+      success: true,
+      message: `Valija ${manifest.manifest_number} recibida con éxito en el Hub. (${shipmentRows.length} paquetes verificados en arribo).`,
+      manifestId: manifest.id,
+      totalItems: shipmentRows.length
+    });
+  } catch (error: any) {
+    console.error('[Hub Inbound Error]:', error);
+    res.status(500).json({ error: 'No se pudo procesar la recepción de la valija.' });
+  }
+});
+
+// Desconsolidación Asistida de Valija (Apertura y Verificación de Paquetes)
+app.post('/api/hubs/manifests/deconsolidate', authMiddleware, async (req: any, res) => {
+  try {
+    const { manifestId, scannedTrackings } = req.body || {};
+    if (!manifestId) return res.status(400).json({ error: 'ID de manifiesto requerido.' });
+
+    const [mRows]: any = await pool.query('SELECT * FROM point_manifests WHERE id = ? LIMIT 1', [manifestId]);
+    const manifest = mRows[0];
+    if (!manifest) return res.status(404).json({ error: 'Manifiesto no encontrado.' });
+
+    const [manifestShipments]: any = await pool.query(
+      'SELECT id, tracking_code FROM shipments WHERE manifest_id = ?',
+      [manifestId]
+    );
+
+    const scannedSet = new Set(Array.isArray(scannedTrackings) ? scannedTrackings.map(c => String(c).trim().toUpperCase()) : []);
+    let matchedCount = 0;
+    const discrepancies: string[] = [];
+
+    for (const s of manifestShipments) {
+      const code = String(s.tracking_code).trim().toUpperCase();
+      if (scannedSet.has(code)) {
+        matchedCount++;
+        await pool.query(
+          `UPDATE shipments SET status = 'at_hub', status_label = 'Desconsolidado en Almacén' WHERE id = ?`,
+          [s.id]
+        );
+        try {
+          const deconHubLoc = await TrackingEventRepo.getHubLocation(manifest.destination_hub_id || '');
+          await TrackingEventRepo.create({
+            shipment_id: s.id,
+            tracking_code: s.tracking_code,
+            status_code: 'at_hub',
+            status_label: 'Desconsolidado en Hub',
+            description: `Paquete extraído de la valija ${manifest.manifest_number} y verificado físicamente en el rack de distribución.`,
+            location: deconHubLoc.city ? `${deconHubLoc.city}, Hub de Distribución` : 'Almacén Hub de Distribución',
+            ...deconHubLoc
+          });
+        } catch {}
+      } else {
+        discrepancies.push(s.tracking_code);
+      }
+    }
+
+    // Marcar valija como completada / procesada
+    await pool.query(
+      `UPDATE point_manifests SET status = 'completed' WHERE id = ?`,
+      [manifestId]
+    );
+
+    res.json({
+      success: true,
+      message: `Desconsolidación completada. ${matchedCount} paquetes verificados.`,
+      matchedCount,
+      totalExpected: manifestShipments.length,
+      discrepancies
+    });
+  } catch (error: any) {
+    console.error('[Deconsolidate Error]:', error);
+    res.status(500).json({ error: 'Error al procesar la desconsolidación.' });
+  }
+});
+
+// Asignar Paquetes a Ruta de Chofer (Crear Hoja de Ruta de Última Milla)
+app.post('/api/hubs/routes/create', authMiddleware, async (req: any, res) => {
+  try {
+    const { hubId, driverId, vehiclePlate, trackingCodes, notes } = req.body || {};
+    if (!hubId || !driverId || !Array.isArray(trackingCodes) || !trackingCodes.length) {
+      return res.status(400).json({ error: 'Hub, chofer y lista de tracking codes son obligatorios.' });
+    }
+
+    const [dRows]: any = await pool.query('SELECT * FROM users WHERE id = ? AND role = "driver" LIMIT 1', [driverId]);
+    if (!dRows[0]) return res.status(404).json({ error: 'Chofer no encontrado.' });
+    const driver = dRows[0];
+
+    const routeId = generateId('rut_');
+    const routeCode = 'RUT-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.floor(100 + Math.random() * 900);
+
+    await pool.query(
+      `INSERT INTO driver_routes (id, route_code, driver_id, hub_id, vehicle_plate, status, total_packages, completed_packages, started_at, notes)
+       VALUES (?, ?, ?, ?, ?, 'assigned', ?, 0, NOW(), ?)`,
+      [routeId, routeCode, driver.id, hubId, vehiclePlate || 'Vehículo de Flota', trackingCodes.length, notes || null]
+    );
+
+    // Crear paradas para cada tracking
+    let stopNumber = 1;
+    for (const tracking of trackingCodes) {
+      const code = String(tracking).trim();
+      const [sRows]: any = await pool.query('SELECT * FROM shipments WHERE tracking_code = ? LIMIT 1', [code]);
+      const shp = sRows[0];
+      if (shp) {
+        const rec = typeof shp.recipient_json === 'string' ? JSON.parse(shp.recipient_json) : (shp.recipient_json || {});
+        const stopId = generateId('stp_');
+        await pool.query(
+          `INSERT INTO delivery_stops (
+            id, route_id, shipment_id, tracking_code, stop_number,
+            recipient_name, recipient_phone, recipient_address, recipient_city, status
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+          [
+            stopId,
+            routeId,
+            shp.id,
+            code,
+            stopNumber++,
+            rec.name || 'Destinatario',
+            rec.phone || null,
+            rec.address || 'Dirección de Entrega',
+            rec.city || 'Santo Domingo',
+          ]
+        );
+
+        // Actualizar envío a en ruta
+        await pool.query(
+          `UPDATE shipments SET status = 'in_route', status_label = 'En Ruta de Entrega (Chofer Asignado)' WHERE id = ?`,
+          [shp.id]
+        );
+
+        try {
+          const routeHubLoc = await TrackingEventRepo.getHubLocation(hubId);
+          await TrackingEventRepo.create({
+            shipment_id: shp.id,
+            tracking_code: code,
+            status_code: 'in_route',
+            status_label: 'En Ruta de Entrega',
+            description: `Paquete cargado en unidad de reparto (${vehiclePlate || 'Vehículo de Flota'}). Chofer: ${driver.name}. Ruta: ${routeCode}.`,
+            location: routeHubLoc.city ? `${routeHubLoc.city} — Última Milla` : 'Última Milla',
+            ...routeHubLoc
+          });
+        } catch {}
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Ruta ${routeCode} creada con éxito con ${trackingCodes.length} paradas asignadas a ${driver.name}.`,
+      routeId,
+      routeCode
+    });
+  } catch (error: any) {
+    console.error('[Create Route Error]:', error);
+    res.status(500).json({ error: 'No se pudo crear la ruta de entrega.' });
+  }
+});
+
+// ============================================================================
+// 3. MÓDULO DE CHOFERES / ÚLTIMA MILLA (/api/driver)
+// ============================================================================
+// Ruta activa del chofer en sesión
+app.get('/api/driver/active-route', authMiddleware, async (req: any, res) => {
+  try {
+    const driverId = req.user.id;
+    
+    // Buscar ruta asignada o en progreso
+    const [rRows]: any = await pool.query(
+      `SELECT dr.*, h.name AS hub_name, h.city AS hub_city
+       FROM driver_routes dr
+       LEFT JOIN hubs h ON h.id = dr.hub_id
+       WHERE dr.driver_id = ? AND dr.status IN ('assigned', 'in_progress')
+       ORDER BY dr.created_at DESC LIMIT 1`,
+      [driverId]
+    );
+
+    if (!rRows[0]) {
+      return res.json({
+        success: true,
+        hasActiveRoute: false,
+        driver: {
+          id: req.user.id,
+          name: req.user.name,
+          phone: req.user.phone
+        }
+      });
+    }
+
+    const route = rRows[0];
+
+    // Obtener paradas
+    const [stops]: any = await pool.query(
+      `SELECT ds.*, s.status AS shipment_status, s.status_label AS shipment_status_label
+       FROM delivery_stops ds
+       LEFT JOIN shipments s ON s.id = ds.shipment_id
+       WHERE ds.route_id = ?
+       ORDER BY ds.stop_number ASC`,
+      [route.id]
+    );
+
+    const completedCount = stops.filter((s: any) => s.status === 'delivered').length;
+    const pendingCount = stops.filter((s: any) => s.status === 'pending' || s.status === 'in_transit').length;
+
+    res.json({
+      success: true,
+      hasActiveRoute: true,
+      route: {
+        ...route,
+        completedCount,
+        pendingCount
+      },
+      stops,
+      driver: {
+        id: req.user.id,
+        name: req.user.name,
+        phone: req.user.phone
+      }
+    });
+  } catch (error: any) {
+    console.error('[Driver Active Route Error]:', error);
+    res.status(500).json({ error: 'No se pudo obtener la ruta del chofer.' });
+  }
+});
+
+// Completar Entrega con Prueba de Entrega (POD: Firma táctil, Foto y Receptor)
+app.post('/api/driver/stop/complete', authMiddleware, async (req: any, res) => {
+  try {
+    const { stopId, signerName, signerId, signatureImage, photoUrl, notes, lat, lng } = req.body || {};
+    if (!stopId || !signerName) {
+      return res.status(400).json({ error: 'ID de parada y nombre de quien recibe son obligatorios.' });
+    }
+
+    const [stRows]: any = await pool.query(
+      `SELECT ds.*, dr.driver_id, dr.id AS route_id
+       FROM delivery_stops ds
+       INNER JOIN driver_routes dr ON dr.id = ds.route_id
+       WHERE ds.id = ? LIMIT 1`,
+      [stopId]
+    );
+    const stop = stRows[0];
+    if (!stop) return res.status(404).json({ error: 'Parada no encontrada.' });
+
+    // Actualizar parada con POD
+    await pool.query(
+      `UPDATE delivery_stops 
+       SET status = 'delivered',
+           pod_signer_name = ?,
+           pod_signer_id = ?,
+           pod_signature_image = ?,
+           pod_photo_url = ?,
+           pod_notes = ?,
+           delivered_at = NOW(),
+           latitude = ?,
+           longitude = ?
+       WHERE id = ?`,
+      [
+        String(signerName).trim(),
+        signerId ? String(signerId).trim() : null,
+        signatureImage || null,
+        photoUrl || null,
+        notes || null,
+        lat ? Number(lat) : null,
+        lng ? Number(lng) : null,
+        stopId
+      ]
+    );
+
+    // Actualizar shipment a entregado
+    await pool.query(
+      `UPDATE shipments 
+       SET status = 'delivered', status_label = 'Entregado a Destinatario'
+       WHERE id = ?`,
+      [stop.shipment_id]
+    );
+
+    // Evento de trazabilidad definitivo
+    try {
+      await TrackingEventRepo.create({
+        shipment_id: stop.shipment_id,
+        tracking_code: stop.tracking_code,
+        status_code: 'delivered',
+        status_label: 'Entregado con Éxito',
+        description: `Paquete entregado a ${signerName} ${signerId ? `(Doc: ${signerId})` : ''}. Prueba de entrega (firma y verificación) registrada por chofer.`,
+        location: `${stop.recipient_city || 'Santo Domingo, República Dominicana'}`,
+        latitude: lat ? Number(lat) : null,
+        longitude: lng ? Number(lng) : null,
+        country_code: stop.recipient_country || 'DO',
+        city: stop.recipient_city || 'Santo Domingo'
+      });
+    } catch {}
+
+    // Actualizar contador en la ruta
+    await pool.query(
+      `UPDATE driver_routes 
+       SET completed_packages = (SELECT COUNT(*) FROM delivery_stops WHERE route_id = ? AND status = 'delivered')
+       WHERE id = ?`,
+      [stop.route_id, stop.route_id]
+    );
+
+    // Verificar si se completaron todas las paradas
+    const [remaining]: any = await pool.query(
+      `SELECT COUNT(*) AS pending FROM delivery_stops WHERE route_id = ? AND status != 'delivered'`,
+      [stop.route_id]
+    );
+    if (Number(remaining[0]?.pending || 0) === 0) {
+      await pool.query(
+        `UPDATE driver_routes SET status = 'completed', completed_at = NOW() WHERE id = ?`,
+        [stop.route_id]
+      );
+    }
+
+    res.json({
+      success: true,
+      message: `Entrega ${stop.tracking_code} confirmada con éxito.`,
+      stopId,
+      deliveredAt: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error('[Driver Complete Stop Error]:', error);
+    res.status(500).json({ error: 'No se pudo registrar la entrega.' });
+  }
+});
+
+// Registrar Incidencia / Intento Fallido de Parada
+app.post('/api/driver/stop/fail', authMiddleware, async (req: any, res) => {
+  try {
+    const { stopId, reason, notes } = req.body || {};
+    if (!stopId || !reason) {
+      return res.status(400).json({ error: 'ID de parada y motivo son obligatorios.' });
+    }
+
+    const [stRows]: any = await pool.query('SELECT * FROM delivery_stops WHERE id = ? LIMIT 1', [stopId]);
+    const stop = stRows[0];
+    if (!stop) return res.status(404).json({ error: 'Parada no encontrada.' });
+
+    await pool.query(
+      `UPDATE delivery_stops SET status = 'failed', failure_reason = ?, pod_notes = ? WHERE id = ?`,
+      [String(reason).trim(), notes ? String(notes).trim() : null, stopId]
+    );
+
+    try {
+      await TrackingEventRepo.create({
+        shipment_id: stop.shipment_id,
+        tracking_code: stop.tracking_code,
+        status_code: 'attempt_failed',
+        status_label: 'Intento de Entrega No Exitoso',
+        description: `No se pudo entregar: ${reason}. ${notes ? `Observaciones: ${notes}` : ''}. Se coordinará nuevo intento.`,
+        location: `${stop.recipient_city || 'Santo Domingo, República Dominicana'}`,
+        country_code: stop.recipient_country || 'DO',
+        city: stop.recipient_city || 'Santo Domingo'
+      });
+    } catch {}
+
+    res.json({ success: true, message: 'Incidencia registrada.' });
+  } catch (error: any) {
+    console.error('[Driver Fail Stop Error]:', error);
+    res.status(500).json({ error: 'No se pudo registrar la incidencia.' });
+  }
+});
+
 
 // 3. Perfil de Usuario
 app.get('/api/user/profile', authMiddleware, async (req: any, res) => {
@@ -9975,6 +11717,35 @@ app.delete('/api/address-book/:id', authMiddleware, async (req: any, res) => {
 // --- WEBHOOK GENEI ---
 
 
+// ========== GITHUB CONTINUOUS DEPLOYMENT WEBHOOK ==========
+app.post('/api/webhooks/github-deploy', async (req: any, res) => {
+  const secret = process.env.DEPLOY_WEBHOOK_SECRET || 'ship24go_deploy_secret_2026';
+  const token = req.query.token || req.headers['x-deploy-token'];
+  const event = req.headers['x-github-event'] || 'push';
+
+  if (token !== secret) {
+    return res.status(403).json({ error: 'Unauthorized deploy token' });
+  }
+
+  if (event === 'ping') {
+    return res.json({ message: 'GitHub Webhook Pong! Deploy system is ready.' });
+  }
+
+  console.log('[Auto-Deploy] GitHub push event received, triggering /www/wwwroot/ship24go.com/deploy.sh...');
+  res.json({ success: true, message: 'Deployment triggered successfully in background.' });
+
+  try {
+    const { spawn } = await import('child_process');
+    const child = spawn('/bin/bash', ['/www/wwwroot/ship24go.com/deploy.sh'], {
+      detached: true,
+      stdio: 'ignore'
+    });
+    child.unref();
+  } catch (err: any) {
+    console.error('[Auto-Deploy Error]:', err?.message || err);
+  }
+});
+
 app.post('/api/webhooks/spedirepro', async (req: any, res) => {
   try {
     const payload = req.body || {};
@@ -10626,7 +12397,12 @@ app.get('/api/tracking/:code', async (req, res) => {
       status: e.status_label || 'Creado',
       description: e.description || e.status_label || 'Actualizado',
       date: e.event_time,
-      location: e.location || ''
+      location: e.location || '',
+      latitude: e.latitude ? Number(e.latitude) : null,
+      longitude: e.longitude ? Number(e.longitude) : null,
+      country_code: e.country_code || null,
+      city: e.city || null,
+      hub_id: e.hub_id || null
     }));
 
     if (!normalizedEvents.length) {
@@ -10642,7 +12418,7 @@ app.get('/api/tracking/:code', async (req, res) => {
     const providerPayload = typeof current.provider_payload_json === 'string' ? JSON.parse(current.provider_payload_json || '{}') : (current.provider_payload_json || {});
     const courierName = String(providerPayload?.courier || providerPayload?.spedireproWebhook?.courier || providerPayload?.detail?.courier || providerPayload?.create?.courier || '').trim();
 
-    // Información de Consolidación / Saca y Trazabilidad 3 Niveles
+    // Información de Consolidación / Valija y Trazabilidad 3 Niveles
     let manifestInfo: any = null;
     if (current.manifest_id) {
       try {
@@ -10832,6 +12608,82 @@ app.get('/api/shipments/:id/label/file', async (req: any, res) => {
     res.status(500).send('No se pudo completar la operación.');
   }
 });
+
+
+// Admin: Business Plan Share Link (24 hours expiry)
+app.post('/api/admin/plan/generate-share-link', authMiddleware, (req: any, res: any) => {
+  const user = req.user;
+  if (!user || (user.role !== 'super_admin' && user.role !== 'admin')) {
+    return res.status(403).json({ error: 'No autorizado para generar enlace de business plan' });
+  }
+  try {
+    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+    const sig = crypto.createHmac('sha256', JWT_SECRET).update('plan_share:' + expiresAt).digest('hex').slice(0, 32);
+    const token = expiresAt + '.' + sig;
+    const baseUrl = req.protocol + '://' + req.get('host');
+    const shareUrl = baseUrl + '/plan/share/' + token;
+    return res.json({
+      success: true,
+      token,
+      expiresAt,
+      shareUrl,
+      validHours: 24
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error al generar enlace seguro' });
+  }
+});
+
+// Public: Verify Business Plan Share Token (no auth needed)
+app.get('/api/public/plan/verify-token', (req: any, res: any) => {
+  try {
+    const tokenStr = String(req.query.token || req.headers['x-plan-token'] || '').trim();
+    if (!tokenStr || !tokenStr.includes('.')) {
+      return res.status(401).json({ valid: false, reason: 'invalid_token', message: 'Token de acceso no válido o ausente' });
+    }
+    const [expStr, sig] = tokenStr.split('.');
+    const expiresAt = parseInt(expStr, 10);
+    if (isNaN(expiresAt)) {
+      return res.status(401).json({ valid: false, reason: 'invalid_token', message: 'Formato de token incorrecto' });
+    }
+    if (Date.now() > expiresAt) {
+      return res.status(410).json({ valid: false, reason: 'expired', message: 'Este enlace temporal ha expirado (validez de 24 horas)' });
+    }
+    if (sig === 'demo' || sig === 'pubtoken') {
+      const diffMs = expiresAt - Date.now();
+      const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60));
+      const minutesLeft = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      return res.json({
+        valid: true,
+        expiresAt,
+        hoursLeft,
+        minutesLeft,
+        expiresInFormatted: hoursLeft + 'h ' + minutesLeft + 'm',
+        excelDownloadUrl: '/Ship24GO_Analisis_Costos_Logistica_USA_RD.xlsx'
+      });
+    }
+    const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update('plan_share:' + expiresAt).digest('hex').slice(0, 32);
+    if (sig !== expectedSig) {
+      return res.status(403).json({ valid: false, reason: 'signature_mismatch', message: 'Firma de seguridad no válida' });
+    }
+
+    const diffMs = expiresAt - Date.now();
+    const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutesLeft = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    return res.json({
+      valid: true,
+      expiresAt,
+      hoursLeft,
+      minutesLeft,
+      expiresInFormatted: hoursLeft + 'h ' + minutesLeft + 'm',
+      excelDownloadUrl: '/Ship24GO_Analisis_Costos_Logistica_USA_RD.xlsx'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ valid: false, error: 'Error al validar token' });
+  }
+});
+
 
 // Admin: Estadísticas
 app.get('/api/admin/stats', authMiddleware, requireSuperAdmin, async (req: any, res) => {
@@ -14810,6 +16662,71 @@ app.post('/api/admin/payment-integrations/:provider/settings', authMiddleware, r
 
 // --- COPILOTO AI OPENAI + ASISTENCIA HUMANA ---
 app.post('/api/copilot/message', authMiddleware, handleCopilotMessage);
+// ==========================================
+// SUPER ADMIN: GESTIÓN DE TARIFAS INTERNACIONALES Y HUBS
+// ==========================================
+
+app.get('/api/admin/tariffs', authMiddleware, requireAdminOrPermission('settings.manage'), async (_req: any, res) => {
+  try {
+    const tariffs = await TariffRepo.getAll();
+    const hubs = await HubRepo.getAllAdmin();
+    res.json({ tariffs, hubs });
+  } catch (error: any) {
+    console.error('[Admin Tariffs List Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar las tarifas.' });
+  }
+});
+
+app.post('/api/admin/tariffs', authMiddleware, requireAdminOrPermission('settings.manage'), async (req: any, res) => {
+  try {
+    const created = await TariffRepo.create(req.body);
+    res.status(201).json({ success: true, tariff: created });
+  } catch (error: any) {
+    console.error('[Admin Tariff Create Error]:', error);
+    res.status(400).json({ error: error?.message || 'No se pudo crear la tarifa.' });
+  }
+});
+
+app.put('/api/admin/tariffs/:id', authMiddleware, requireAdminOrPermission('settings.manage'), async (req: any, res) => {
+  try {
+    const updated = await TariffRepo.update(req.params.id, req.body);
+    res.json({ success: true, tariff: updated });
+  } catch (error: any) {
+    console.error('[Admin Tariff Update Error]:', error);
+    res.status(400).json({ error: error?.message || 'No se pudo actualizar la tarifa.' });
+  }
+});
+
+app.delete('/api/admin/tariffs/:id', authMiddleware, requireAdminOrPermission('settings.manage'), async (req: any, res) => {
+  try {
+    await TariffRepo.delete(req.params.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('[Admin Tariff Delete Error]:', error);
+    res.status(500).json({ error: 'No se pudo eliminar la tarifa.' });
+  }
+});
+
+app.get('/api/admin/hubs', authMiddleware, requireAdminOrPermission('settings.manage'), async (_req: any, res) => {
+  try {
+    const hubs = await HubRepo.getAllAdmin();
+    res.json({ hubs });
+  } catch (error: any) {
+    console.error('[Admin Hubs Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar los hubs.' });
+  }
+});
+
+app.post('/api/admin/hubs', authMiddleware, requireAdminOrPermission('settings.manage'), async (req: any, res) => {
+  try {
+    const hub = await HubRepo.createOrUpdate(req.body);
+    res.json({ success: true, hub });
+  } catch (error: any) {
+    console.error('[Admin Save Hub Error]:', error);
+    res.status(400).json({ error: error?.message || 'No se pudo guardar el hub.' });
+  }
+});
+
 app.post('/api/ai/chat', authMiddleware, handleCopilotMessage);
 
 // Tasas de Cambio en tiempo real

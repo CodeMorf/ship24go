@@ -23,11 +23,30 @@ import {
   Terminal,
   RefreshCw,
   Sliders,
-  ListTodo
+  ListTodo,
+  TrendingUp
 } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import AdminBusinessPlan from './AdminBusinessPlan';
 
-export default function AdminDocs() {
-  const [activeTab, setActiveTab] = useState<'architecture' | 'operation' | 'logs' | 'roadmap'>('architecture');
+export default function AdminDocs({ defaultTab }: { defaultTab?: 'architecture' | 'operation' | 'logs' | 'roadmap' | 'plan' }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const getInitialTab = (): 'architecture' | 'operation' | 'logs' | 'roadmap' | 'plan' => {
+    if (defaultTab) return defaultTab;
+    if (typeof window !== 'undefined' && window.location.pathname.includes('/plan')) return 'plan';
+    return 'architecture';
+  };
+
+  const [activeTab, setActiveTab] = useState<'architecture' | 'operation' | 'logs' | 'roadmap' | 'plan'>(getInitialTab);
+
+  React.useEffect(() => {
+    if (location.pathname.includes('/plan')) {
+      setActiveTab('plan');
+    }
+  }, [location.pathname]);
+
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
 
   const copyToClipboard = (text: string, id: string) => {
@@ -103,6 +122,20 @@ export default function AdminDocs() {
           >
             <ListTodo className="w-4 h-4" />
             Roadmap & Tareas
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('plan');
+              navigate('/admin/settings/docs/plan');
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+              activeTab === 'plan'
+                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <TrendingUp className="w-4 h-4 text-amber-400" />
+            Business Plan & Tarifas
           </button>
         </div>
       </div>
@@ -624,6 +657,11 @@ export default function AdminDocs() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* TAB 5: BUSINESS PLAN & TARIFAS */}
+      {activeTab === 'plan' && (
+        <AdminBusinessPlan />
       )}
     </div>
   );

@@ -463,6 +463,12 @@ export default function PointRegister() {
             <BrandMark showText={false} iconClassName="w-10 h-10 md:w-11 md:h-11 rounded-xl" />
           </Link>
           <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              to="/point/roadmap"
+              className="text-xs sm:text-sm font-bold text-amber-600 dark:text-amber-400 hover:underline whitespace-nowrap px-2 py-1 flex items-center gap-1"
+            >
+              <span>🗺️ Roadmap &amp; Tarifas</span>
+            </Link>
             <CurrencySelector />
             <LanguageSelector />
             <button

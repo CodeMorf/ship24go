@@ -93,6 +93,24 @@ const AVAILABLE_PERMISSIONS = [
     ]
   },
   {
+    category: 'Hubs & Centros Logísticos',
+    permissions: [
+      { key: 'hubs.view', label: 'Ver Hubs & Valijas', desc: 'Consultar centros logísticos e inventario' },
+      { key: 'hubs.inbound', label: 'Recepción de Valijas', desc: 'Escanear y registrar arribo físico de valijas' },
+      { key: 'hubs.deconsolidate', label: 'Desconsolidar Valijas', desc: 'Apertura de valija y verificación paquete a paquete' },
+      { key: 'hubs.assign_route', label: 'Asignar a Choferes', desc: 'Crear hojas de ruta para última milla' },
+      { key: 'manifests.view', label: 'Ver Hojas de Ruta', desc: 'Consultar manifiestos y despachos de broker' }
+    ]
+  },
+  {
+    category: 'Conductor & Última Milla (Driver)',
+    permissions: [
+      { key: 'driver.routes', label: 'Ver Hoja de Ruta', desc: 'Consultar paradas asignadas del día' },
+      { key: 'driver.pod', label: 'Prueba de Entrega (POD)', desc: 'Registrar firma digital táctil y foto' },
+      { key: 'driver.deliver', label: 'Operar Entregas', desc: 'Navegación GPS y contacto con destinatario' }
+    ]
+  },
+  {
     category: 'Equipo & Roles',
     permissions: [
       { key: 'team.view', label: 'Ver Equipo', desc: 'Consultar colaboradores del sistema' },

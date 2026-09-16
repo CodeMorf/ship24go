@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Routes, Route, Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Package, Truck, ArrowRight, Search, CheckCircle2 } from 'lucide-react';
+import { Package, Truck, ArrowRight, Search, CheckCircle2, MapPin, Globe, ExternalLink, Building2, Navigation } from 'lucide-react';
 import { api } from '../lib/api';
 import { useI18n } from '../lib/i18n';
 import { LanguageSelector } from '../components/LanguageSelector';
@@ -19,6 +19,7 @@ const Navbar = () => {
         <div className="hidden md:flex gap-8 items-center text-sm font-medium text-gray-600 dark:text-gray-300">
           <Link to="/" className="hover:text-blue-600 dark:hover:text-neon-cyan transition-colors">{t('home')}</Link>
           <Link to="/tracking" className="hover:text-blue-600 dark:hover:text-neon-cyan transition-colors">{t('tracking')}</Link>
+          <Link to="/sistema" className="hover:text-blue-600 dark:hover:text-neon-cyan transition-colors">Sistema</Link>
           <Link to="/point/register" className="hover:text-blue-600 dark:hover:text-neon-cyan transition-colors">Afiliar mi comercio</Link>
         </div>
         <div className="flex items-center gap-2 sm:gap-4">
@@ -173,49 +174,63 @@ const Tracking = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-10">
               <div className="rounded-2xl bg-slate-50 dark:bg-dark-900/60 border border-slate-100 dark:border-gray-700 p-4"><p className="text-xs font-black uppercase text-slate-400 mb-1">Tracking</p><p className="font-mono font-black text-slate-900 dark:text-white break-all">{data.providerTrackingCode || data.trackingCode}</p></div>
               <div className="rounded-2xl bg-slate-50 dark:bg-dark-900/60 border border-slate-100 dark:border-gray-700 p-4"><p className="text-xs font-black uppercase text-slate-400 mb-1">Estado</p><p className="font-black text-slate-900 dark:text-white">{data.status}</p></div>
               <div className="rounded-2xl bg-slate-50 dark:bg-dark-900/60 border border-slate-100 dark:border-gray-700 p-4"><p className="text-xs font-black uppercase text-slate-400 mb-1">Etiqueta</p><p className={`font-black ${data.labelReady ? 'text-emerald-600' : 'text-slate-500 dark:text-slate-400'}`}>{data.labelReady ? (language === 'it' ? 'Disponibile' : 'Disponible') : (language === 'it' ? 'In preparazione' : 'En preparación')}</p></div>
             </div>
 
-            {data.manifest && (
-              <div className="mb-10 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50/60 dark:from-slate-900 dark:to-blue-950/40 border border-blue-200 dark:border-blue-900/60 p-5">
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-blue-600 dark:bg-cyan-400 animate-pulse" />
-                    <span className="text-xs font-black uppercase tracking-wider text-blue-700 dark:text-cyan-300">
-                      Trazabilidad Logística 3 Niveles (Ship24Go Saca & Hub)
-                    </span>
-                  </div>
-                  <span className="text-[11px] font-bold text-slate-500">
-                    {data.manifest.destinationHub}
+            {/* Trayecto Geográfico de Hubs y Distribución */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 rounded-2xl p-5 mb-8 text-white shadow-xl">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-800">
+                <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
+                  <Building2 className="w-4 h-4 text-indigo-400" /> Red de Hubs & Trazabilidad Geográfica
+                </span>
+                {data.manifest?.manifestNumber && (
+                  <span className="text-[11px] font-mono font-bold bg-indigo-500/20 border border-indigo-500/40 px-2.5 py-0.5 rounded-full text-indigo-300">
+                    Valija: {data.manifest.manifestNumber} {data.manifest.masterTrackingCode ? `· Master: ${data.manifest.masterTrackingCode}` : ''}
                   </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-3">
+                  <div className="flex items-center gap-1.5 text-xs text-blue-400 font-semibold mb-1">
+                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                    <span>Punto de Origen</span>
+                  </div>
+                  <p className="text-xs font-bold text-white truncate">{data.manifest?.pointName || 'Sucursal / Point'}</p>
+                  <p className="text-[11px] text-slate-400 truncate">{data.manifest?.pointCity || 'Origen'}</p>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                  <div className="bg-white/90 dark:bg-dark-800/90 rounded-xl p-3 border border-blue-100 dark:border-gray-700">
-                    <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Nivel 1 · Tracking Cliente</p>
-                    <p className="font-mono font-black text-blue-600 dark:text-cyan-400 truncate">{data.trackingCode}</p>
-                    <p className="text-[10px] text-slate-500 mt-1">Emisor: {data.manifest.pointName || 'Point Mostrador'}</p>
+                <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-3">
+                  <div className="flex items-center gap-1.5 text-xs text-indigo-400 font-semibold mb-1">
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>Hub Tránsito</span>
                   </div>
+                  <p className="text-xs font-bold text-white truncate">{data.manifest?.originHub || 'Hub Internacional'}</p>
+                  <p className="text-[11px] text-slate-400 truncate">Consolidación</p>
+                </div>
 
-                  <div className="bg-white/90 dark:bg-dark-800/90 rounded-xl p-3 border border-blue-100 dark:border-gray-700">
-                    <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Nivel 2 · Saca Consolidada</p>
-                    <p className="font-mono font-black text-slate-900 dark:text-white truncate">{data.manifest.manifestNumber}</p>
-                    <p className="text-[10px] text-slate-500 mt-1">Estado: <span className="font-bold uppercase text-blue-600 dark:text-cyan-400">{data.manifest.status}</span></p>
+                <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-3">
+                  <div className="flex items-center gap-1.5 text-xs text-purple-400 font-semibold mb-1">
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>Hub Destino</span>
                   </div>
+                  <p className="text-xs font-bold text-white truncate">{data.manifest?.destinationHub || 'Hub Central'}</p>
+                  <p className="text-[11px] text-slate-400 truncate">Desconsolidación</p>
+                </div>
 
-                  <div className="bg-white/90 dark:bg-dark-800/90 rounded-xl p-3 border border-blue-100 dark:border-gray-700">
-                    <p className="text-[10px] font-black uppercase text-slate-400 mb-1">Nivel 3 · Master Tracking</p>
-                    <p className="font-mono font-black text-emerald-600 dark:text-emerald-400 truncate">
-                      {data.masterTrackingCode || 'En proceso (Acumulando piezas)'}
-                    </p>
-                    <p className="text-[10px] text-slate-500 mt-1">Courier: {data.manifest.courierName || 'Air Hub Express'}</p>
+                <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-3">
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold mb-1">
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>Última Milla</span>
                   </div>
+                  <p className="text-xs font-bold text-white truncate">{data.recipient || 'Destinatario'}</p>
+                  <p className="text-[11px] text-slate-400 truncate">{data.destination || 'Entrega en Destino'}</p>
                 </div>
               </div>
-            )}
+            </div>
 
             <div className="space-y-0 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-blue-200 before:to-gray-100 dark:before:from-neon-cyan/30 dark:before:to-gray-800">
               {data.events.map((ev: any, i: number) => (
@@ -224,10 +239,50 @@ const Tracking = () => {
                     <div className="w-2 h-2 rounded-full bg-white dark:bg-dark-900"></div>
                   </div>
                   
-                  <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-dark-900/50 shadow-sm">
-                    <p className="font-bold text-gray-900 dark:text-white">{ev.status}</p>
-                    <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">{ev.description}</p>
-                    <p className="text-gray-400 dark:text-gray-500 text-xs mt-3 font-medium">{new Date(ev.date).toLocaleString()}</p>
+                  <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-2xl border border-gray-200 dark:border-gray-700/80 bg-white/90 dark:bg-dark-900/70 shadow-sm backdrop-blur-sm">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <p className="font-bold text-gray-900 dark:text-white text-sm">{ev.status}</p>
+                      {ev.hub_id && (
+                        <span className="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40">
+                          {ev.hub_id}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-gray-600 dark:text-gray-400 text-xs mt-1 leading-relaxed">{ev.description}</p>
+
+                    {/* Ubicación Geográfica del Evento */}
+                    {(ev.location || ev.city || ev.country_code) && (
+                      <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 mt-2.5 pt-2 border-t border-gray-100 dark:border-gray-800">
+                        <MapPin className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        <span className="font-medium truncate">{ev.location || [ev.city, ev.country_code].filter(Boolean).join(', ')}</span>
+                        {ev.country_code && (
+                          <span className="text-[9px] font-mono font-bold uppercase px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                            {ev.country_code}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Coordenadas GPS y Enlace a Mapa */}
+                    {ev.latitude != null && ev.longitude != null && (
+                      <div className="flex items-center justify-between gap-2 mt-2 pt-1">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 px-2 py-0.5 rounded border border-slate-200/80 dark:border-slate-700/60">
+                          <Globe className="w-3 h-3 text-emerald-500" />
+                          {Number(ev.latitude).toFixed(4)}, {Number(ev.longitude).toFixed(4)}
+                        </span>
+                        <a
+                          href={`https://www.google.com/maps?q=${ev.latitude},${ev.longitude}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 dark:text-cyan-400 hover:underline"
+                        >
+                          <span>Ver en mapa</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    )}
+
+                    <p className="text-gray-400 dark:text-gray-500 text-[11px] mt-2 font-medium">{new Date(ev.date).toLocaleString()}</p>
                   </div>
                 </div>
               ))}
@@ -239,6 +294,10 @@ const Tracking = () => {
   );
 };
 
+import PublicBusinessPlan from './PublicBusinessPlan';
+import SystemPresentationPage from './SystemPresentationPage';
+import SeoLandingPage from './SeoLandingPage';
+
 export default function PublicPages() {
   return (
     <Routes>
@@ -246,6 +305,28 @@ export default function PublicPages() {
       <Route path="/tracking" element={<Tracking />} />
       <Route path="/points" element={<PointsLocator />} />
       <Route path="/puntos" element={<PointsLocator />} />
+      <Route path="/plan/share/:token" element={<PublicBusinessPlan />} />
+      <Route path="/plan/share" element={<PublicBusinessPlan />} />
+      <Route path="/sistema" element={<SystemPresentationPage />} />
+      <Route path="/how-it-works" element={<SystemPresentationPage />} />
+      <Route path="/ecosistema" element={<SystemPresentationPage />} />
+
+      {/* RUTAS SEO DESTINOS INTERNACIONALES */}
+      <Route path="/destinos/espana-union-europea" element={<SeoLandingPage pageKey="espana-union-europea" />} />
+      <Route path="/destinos/estados-unidos" element={<SeoLandingPage pageKey="estados-unidos" />} />
+      <Route path="/destinos/republica-dominicana" element={<SeoLandingPage pageKey="republica-dominicana" />} />
+      <Route path="/destinos/america-latina" element={<SeoLandingPage pageKey="america-latina" />} />
+      <Route path="/destinos/:slug" element={<SeoLandingPage />} />
+
+      {/* RUTAS SEO PRODUCTOS, TARIFAS Y RED */}
+      <Route path="/servicios" element={<SeoLandingPage pageKey="servicios" />} />
+      <Route path="/cotizador" element={<SeoLandingPage pageKey="cotizador" />} />
+      <Route path="/tarifas" element={<SeoLandingPage pageKey="tarifas" />} />
+      <Route path="/red-points" element={<SeoLandingPage pageKey="red-points" />} />
+
+      {/* RUTAS SEO EMPRESA, SEGURIDAD Y API */}
+      <Route path="/seguridad" element={<SeoLandingPage pageKey="seguridad" />} />
+      <Route path="/api-docs" element={<SeoLandingPage pageKey="api-docs" />} />
     </Routes>
   );
 }

@@ -1,5 +1,5 @@
 /* Ship24Go PWA Service Worker v1.0.0 — stable shell cache, network-first API */
-const SW_VERSION = 'ship24go-pwa-v1.0.10';
+const SW_VERSION = 'ship24go-pwa-v1.0.8';
 const SHELL_CACHE = `${SW_VERSION}-shell`;
 const ASSET_CACHE = `${SW_VERSION}-assets`;
 
