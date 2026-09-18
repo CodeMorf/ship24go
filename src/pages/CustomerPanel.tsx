@@ -1,7 +1,7 @@
 /* ship24go-cache-bust-1784844814 */
 import React, { useEffect, useState, useRef } from 'react';
 import { Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, LayoutDashboard, Package, Calculator, Store, Settings, LogOut, Plus, Search, Moon, Sun, Wallet, ChartPie, Plug, Box, Globe, ChevronDown, Menu, X, CheckCircle, Code, LifeBuoy, Sparkles, CreditCard, ShieldCheck, Trash2, Truck, ArrowLeft, User, MapPin, Pencil, Download, RotateCw, Clock, Eye, FileText, Info } from 'lucide-react';
+import { BookOpen, LayoutDashboard, Package, Calculator, Store, Settings, LogOut, Plus, Search, Moon, Sun, Wallet, ChartPie, Plug, Box, Globe, ChevronDown, Menu, X, CheckCircle, Code, LifeBuoy, Sparkles, CreditCard, ShieldCheck, Trash2, Truck, ArrowLeft, ArrowRight, User, MapPin, Pencil, Download, RotateCw, Clock, Eye, FileText, Info } from 'lucide-react';
 import { api, removeAuthToken, getAuthToken, setAuthToken } from '../lib/api';
 import { loadGuestQuoteSession, clearGuestQuoteSession, guestSessionToPanelState } from '../lib/guestQuoteSession';
 import { useI18n } from '../lib/i18n';
@@ -662,16 +662,52 @@ const Dashboard = ({ profile }: any) => {
 
   return (
     <div className="py-2 md:py-4">
-      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-8">
-        <div>
-          <p className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 dark:bg-neon-cyan/10 text-blue-700 dark:text-neon-cyan text-xs font-black uppercase tracking-[0.22em] mb-3">
-            <ChartPie className="w-4 h-4" /> Panel del cliente
-          </p>
-          <h1 className="text-3xl md:text-4xl font-black text-gray-900 dark:text-white">Visión General</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Tus envíos, saldo y destinos principales en tiempo real.</p>
+      <section className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-slate-950 via-blue-950 to-cyan-900 p-6 sm:p-8 lg:p-10 mb-8 shadow-2xl shadow-blue-950/20">
+        <div className="absolute -right-16 -top-24 h-72 w-72 rounded-full bg-cyan-400/20 blur-3xl" />
+        <div className="absolute -bottom-28 left-1/3 h-64 w-64 rounded-full bg-blue-500/20 blur-3xl" />
+        <div className="relative flex flex-col xl:flex-row xl:items-end xl:justify-between gap-8">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 text-cyan-200 border border-white/15 text-[11px] font-black uppercase tracking-[0.2em] mb-5">
+              <ChartPie className="w-4 h-4" /> Centro de operaciones
+            </div>
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white">
+              Hola, {String(profile?.name || 'cliente').split(' ')[0]}
+            </h1>
+            <p className="text-sm sm:text-base text-blue-100/80 mt-3 max-w-xl leading-relaxed">
+              Controla tus envíos, cotiza nuevas rutas y mantén tu operación logística en movimiento desde un solo lugar.
+            </p>
+            <div className="flex flex-wrap gap-3 mt-7">
+              <Link to="/panel/quote" className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-blue-900 shadow-lg shadow-black/10 hover:bg-cyan-50 transition-colors">
+                <Plus className="w-4 h-4" /> Nueva cotización <ArrowRight className="w-4 h-4" />
+              </Link>
+              <Link to="/panel/shipments" className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-black text-white hover:bg-white/15 transition-colors">
+                Ver mis envíos
+              </Link>
+            </div>
+          </div>
+          <div className="xl:min-w-[245px] rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
+            <div className="flex items-center justify-between gap-4 mb-5">
+              <span className="text-xs font-bold text-blue-100/70">Estado de la cuenta</span>
+              <span className="flex items-center gap-1.5 text-[11px] font-black text-emerald-300"><span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" /> Activa</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-cyan-300/20 flex items-center justify-center text-cyan-200"><ShieldCheck className="w-6 h-6" /></div>
+              <div>
+                <p className="text-sm font-black text-white">Operación protegida</p>
+                <p className="text-xs text-blue-100/65 mt-0.5">Seguimiento y soporte disponibles</p>
+              </div>
+            </div>
+          </div>
         </div>
-        <button onClick={loadDashboard} className="px-5 py-3 rounded-2xl glass-panel text-sm font-black text-gray-700 dark:text-gray-200 hover:border-blue-300 dark:hover:border-neon-cyan/50 transition-colors">
-          Actualizar panel
+      </section>
+
+      <div className="flex items-center justify-between gap-4 mb-5">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600 dark:text-neon-cyan">Resumen ejecutivo</p>
+          <h2 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white mt-1">Tu actividad reciente</h2>
+        </div>
+        <button onClick={loadDashboard} className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl glass-panel text-xs sm:text-sm font-black text-gray-700 dark:text-gray-200 hover:border-blue-300 dark:hover:border-neon-cyan/50 transition-colors">
+          <RotateCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Actualizar
         </button>
       </div>
       
