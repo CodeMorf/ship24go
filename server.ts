@@ -6698,8 +6698,10 @@ app.get(['/api/point/manifests/current-valija', '/api/point/manifests/current-sa
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
 
     const category = String(req.query.category || 'documents');
+    // USA -> RD opera en dos tramos: Hub USA -> Miami y, después, Miami -> SDQ.
+    // RD -> USA mantiene el corredor inverso hacia Miami.
     const originHubId = String(req.query.originHubId || (point.country === 'DO' ? 'hub_sdq_luperon' : 'hub_bos_01'));
-    const destinationHubId = String(req.query.destinationHubId || (point.country === 'DO' ? 'hub_mia_01' : 'hub_sdq_01'));
+    const destinationHubId = String(req.query.destinationHubId || (point.country === 'DO' ? 'hub_mia_01' : 'hub_mia_01'));
 
     const manifest = await ManifestRepo.getActiveOpenManifest(point.id, category, originHubId, destinationHubId);
     const shipments = await ManifestRepo.getManifestShipments(manifest.id);
@@ -6801,9 +6803,10 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, requirePointAcce
     // A) Flujo Inverso: Exportación de República Dominicana hacia Hub Miami (8200 NW 27th St, Doral, FL)
     // B) Flujo Tradicional: Documentos consolidados a Santo Domingo
     const isExportToUS = (point.country === 'DO' || tariff.origin_country === 'DO') && tariff.dest_country === 'US';
-    const isDocToRD = tariff.dest_country === 'DO' && ['document', 'legal_document'].includes(tariff.product_type);
+    const isUsToRd = tariff.dest_country === 'DO' && (tariff.origin_country === 'US' || point.country === 'US');
 
     let manifestId: string | null = null;
+    let shipmentDestinationHubId = tariff.dest_hub_id || 'hub_sdq_01';
     if (isExportToUS) {
       const cat = ['document', 'legal_document'].includes(tariff.product_type) ? 'documents' : 'parcels';
       const valija = await ManifestRepo.getActiveOpenManifest(
@@ -6813,14 +6816,17 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, requirePointAcce
         tariff.dest_hub_id || 'hub_mia_01'
       );
       manifestId = valija.id;
-    } else if (isDocToRD) {
+      shipmentDestinationHubId = valija.destination_hub_id || 'hub_mia_01';
+    } else if (isUsToRd) {
+      const cat = ['document', 'legal_document'].includes(tariff.product_type) ? 'documents' : 'parcels';
       const valija = await ManifestRepo.getActiveOpenManifest(
         point.id,
-        'documents',
+        cat,
         tariff.origin_hub_id || 'hub_bos_01',
-        tariff.dest_hub_id || 'hub_sdq_01'
+        tariff.dest_hub_id || 'hub_mia_01'
       );
       manifestId = valija.id;
+      shipmentDestinationHubId = valija.destination_hub_id || 'hub_mia_01';
     }
 
     // Generar código de tracking propio Ship24Go para el cliente
@@ -6871,7 +6877,7 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, requirePointAcce
         JSON.stringify(recipientData),
         point.id,
         manifestId,
-        tariff.dest_hub_id || 'hub_sdq_01',
+        shipmentDestinationHubId,
         payMethod,
         JSON.stringify({
           price: totalPrice,
@@ -8220,6 +8226,37 @@ app.post('/api/hubs/manifests/inbound', authMiddleware, requireHubAccess('hubs.i
   } catch (error: any) {
     console.error('[Hub Inbound Error]:', error);
     res.status(500).json({ error: 'No se pudo procesar la recepción de la valija.' });
+  }
+});
+
+// Transferir un lote recibido al siguiente tramo sin cambiar el tracking del cliente.
+// Ejemplo: USA -> Miami ya recibido; el Hub Miami crea Miami -> SDQ.
+app.post('/api/hubs/manifests/next-leg', authMiddleware, requireHubAccess('hubs.inbound', req => req.body?.hubId || null), async (req: any, res) => {
+  try {
+    const { hubId, manifestId, destinationHubId, notes } = req.body || {};
+    if (!hubId || !manifestId || !destinationHubId) {
+      return res.status(400).json({ error: 'Hub actual, manifiesto y Hub destino son obligatorios.' });
+    }
+    if (String(hubId) === String(destinationHubId)) {
+      return res.status(400).json({ error: 'El Hub destino debe ser diferente al Hub actual.' });
+    }
+
+    const transfer = await ManifestRepo.createNextLegManifest(
+      String(manifestId),
+      String(hubId),
+      String(destinationHubId),
+      notes
+    );
+
+    res.status(201).json({
+      success: true,
+      message: `Siguiente tramo creado. ${transfer.manifest.total_items || 0} envíos conservan su tracking y ahora viajan bajo ${transfer.manifest.master_tracking_code}.`,
+      previousManifest: transfer.previousManifest,
+      manifest: transfer.manifest
+    });
+  } catch (error: any) {
+    console.error('[Hub Next Leg Error]:', error);
+    res.status(400).json({ error: error?.message || 'No se pudo crear el siguiente tramo del manifiesto.' });
   }
 });
 
@@ -12639,7 +12676,11 @@ app.get('/api/tracking/:code', async (req, res) => {
     );
     const requestedManifest = manifestRows?.[0] || null;
     const shipmentLookup = requestedManifest
-      ? `OR manifest_id = ?`
+      ? `OR s.id IN (
+           SELECT sml.shipment_id
+           FROM shipment_manifest_links sml
+           WHERE sml.manifest_id = ?
+         )`
       : '';
     const shipmentParams = requestedManifest
       ? [code, code, code, code, code, code, requestedManifest.id]
@@ -12697,6 +12738,7 @@ app.get('/api/tracking/:code', async (req, res) => {
 
     // Información de Consolidación / Valija y Trazabilidad 3 Niveles
     let manifestInfo: any = null;
+    let manifestHistory: any[] = [];
     if (current.manifest_id) {
       try {
         const [manRows]: any = await pool.query(
@@ -12725,6 +12767,35 @@ app.get('/api/tracking/:code', async (req, res) => {
             pointCity: manRows[0].point_city
           };
         }
+
+        const [historyRows]: any = await pool.query(
+          `SELECT l.leg_number, l.attached_at, l.detached_at,
+                  m.id, m.manifest_number, m.category, m.status,
+                  m.master_tracking_code, m.warehouse_tracking, m.courier_name,
+                  m.origin_hub_id, m.destination_hub_id,
+                  h_orig.name AS origin_hub_name, h_orig.city AS origin_hub_city,
+                  h_dest.name AS destination_hub_name, h_dest.city AS destination_hub_city
+           FROM shipment_manifest_links l
+           INNER JOIN point_manifests m ON m.id = l.manifest_id
+           LEFT JOIN hubs h_orig ON h_orig.id = m.origin_hub_id
+           LEFT JOIN hubs h_dest ON h_dest.id = m.destination_hub_id
+           WHERE l.shipment_id = ?
+           ORDER BY l.leg_number ASC, l.attached_at ASC`,
+          [current.id]
+        );
+        manifestHistory = (historyRows || []).map((row: any) => ({
+          legNumber: Number(row.leg_number || 1),
+          manifestNumber: row.manifest_number,
+          status: row.status,
+          masterTrackingCode: row.master_tracking_code,
+          warehouseTrackingCode: row.warehouse_tracking,
+          courierName: row.courier_name,
+          originHub: `${row.origin_hub_name || 'Hub Origen'} (${row.origin_hub_city || ''})`,
+          destinationHub: `${row.destination_hub_name || 'Hub Destino'} (${row.destination_hub_city || ''})`,
+          attachedAt: row.attached_at,
+          detachedAt: row.detached_at,
+          isCurrent: row.id === current.manifest_id
+        }));
       } catch (e) {
         console.error('[Tracking Manifest Load Warning]:', e);
       }
@@ -12746,6 +12817,7 @@ app.get('/api/tracking/:code', async (req, res) => {
       updatedAt: current.updated_at || current.created_at,
       events: normalizedEvents,
       manifest: manifestInfo,
+      manifestHistory,
       masterTrackingCode: manifestInfo?.masterTrackingCode || null,
       isPointShipment: !!current.point_id,
       trackingLevels: {

@@ -233,6 +233,33 @@ const Tracking = () => {
               </div>
             </div>
 
+            {Array.isArray(data.manifestHistory) && data.manifestHistory.length > 1 && (
+              <div className="mb-8 rounded-2xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/60 dark:bg-indigo-950/20 p-5">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Historial de tramos</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">El tracking del cliente se mantiene; cambia el manifiesto operativo por cada Hub.</p>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-300">{data.manifestHistory.length} tramos</span>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {data.manifestHistory.map((leg: any) => (
+                    <div key={`${leg.legNumber}-${leg.manifestNumber}`} className={`rounded-xl border p-3 ${leg.isCurrent ? 'border-emerald-300 bg-emerald-50/70 dark:border-emerald-700 dark:bg-emerald-950/20' : 'border-indigo-100 bg-white/70 dark:border-indigo-900/40 dark:bg-dark-900/40'}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-black text-slate-800 dark:text-white">Tramo {leg.legNumber}</span>
+                        <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${leg.isCurrent ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                          {leg.isCurrent ? 'Actual' : 'Completado'}
+                        </span>
+                      </div>
+                      <p className="font-mono text-xs font-bold text-indigo-700 dark:text-indigo-300 mt-2">{leg.manifestNumber}</p>
+                      <p className="font-mono text-[11px] text-slate-600 dark:text-slate-400 mt-1">Master: {leg.masterTrackingCode || 'Pendiente'}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">{leg.originHub} → {leg.destinationHub}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-0 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-blue-200 before:to-gray-100 dark:before:from-neon-cyan/30 dark:before:to-gray-800">
               {data.events.map((ev: any, i: number) => (
                 <div key={i} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active mb-8 last:mb-0">

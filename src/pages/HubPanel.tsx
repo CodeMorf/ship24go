@@ -123,6 +123,8 @@ export default function HubPanel() {
   const [inboundScanCode, setInboundScanCode] = useState<string>('');
   const [inboundLoading, setInboundLoading] = useState<boolean>(false);
   const [inboundMessage, setInboundMessage] = useState<string>('');
+  const [nextLegDestinationByManifest, setNextLegDestinationByManifest] = useState<Record<string, string>>({});
+  const [nextLegLoading, setNextLegLoading] = useState<string>('');
 
   // Desconsolidación
   const [selectedManifestForDecon, setSelectedManifestForDecon] = useState<ManifestItem | null>(null);
@@ -222,6 +224,49 @@ export default function HubPanel() {
       alert(err.message || 'Error en recepción');
     } finally {
       setInboundLoading(false);
+    }
+  };
+
+  // Crear el siguiente tramo del mismo envío: el S24 del cliente permanece
+  // intacto y solo cambia el manifiesto/master operativo del lote.
+  const handleCreateNextLeg = async (manifest: ManifestItem) => {
+    const fallbackDestination = hubs.find(h => h.id === 'hub_sdq_01' && h.id !== selectedHubId)?.id
+      || hubs.find(h => h.id !== selectedHubId)?.id
+      || '';
+    const destinationHubId = nextLegDestinationByManifest[manifest.id] || fallbackDestination;
+    if (!destinationHubId) {
+      alert('No hay otro Hub activo disponible para crear el siguiente tramo.');
+      return;
+    }
+    const destinationHub = hubs.find(h => h.id === destinationHubId);
+    const confirmed = window.confirm(
+      `Crear siguiente tramo ${selectedHub?.city || selectedHubId} → ${destinationHub?.city || destinationHubId}?\n\n` +
+      `Todos los envíos de ${manifest.manifest_number} conservarán su tracking del cliente y recibirán un nuevo Master Tracking.`
+    );
+    if (!confirmed) return;
+
+    setNextLegLoading(manifest.id);
+    try {
+      const res = await fetch('/api/hubs/manifests/next-leg', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          hubId: selectedHubId,
+          manifestId: manifest.id,
+          destinationHubId
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo crear el siguiente tramo.');
+      setInboundMessage(data.message || 'Siguiente tramo creado correctamente.');
+      await loadHubData(selectedHubId);
+    } catch (err: any) {
+      alert(err.message || 'No se pudo crear el siguiente tramo.');
+    } finally {
+      setNextLegLoading('');
     }
   };
 
@@ -640,15 +685,35 @@ export default function HubPanel() {
                             <FileText className="w-4 h-4" />
                           </button>
                           {m.status === 'received_hub' && (
-                            <button
-                              onClick={() => {
-                                startDeconsolidation(m);
-                                setActiveTab('deconsolidate');
-                              }}
-                              className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold"
-                            >
-                              Desconsolidar →
-                            </button>
+                            <div className="inline-flex items-center gap-2">
+                              <select
+                                value={nextLegDestinationByManifest[m.id] || (hubs.find(h => h.id === 'hub_sdq_01' && h.id !== selectedHubId)?.id || '')}
+                                onChange={e => setNextLegDestinationByManifest(prev => ({ ...prev, [m.id]: e.target.value }))}
+                                className="bg-slate-800 border border-slate-700 text-[10px] text-white rounded-lg px-2 py-1.5 max-w-[150px]"
+                                title="Hub del siguiente tramo"
+                              >
+                                {hubs.filter(h => h.id !== selectedHubId).map(h => (
+                                  <option key={h.id} value={h.id}>{h.code} · {h.city}</option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => handleCreateNextLeg(m)}
+                                disabled={nextLegLoading === m.id}
+                                className="px-3 py-1 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold"
+                                title="Conservar tracking del cliente y crear el siguiente manifiesto"
+                              >
+                                {nextLegLoading === m.id ? 'Creando...' : 'Siguiente tramo →'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  startDeconsolidation(m);
+                                  setActiveTab('deconsolidate');
+                                }}
+                                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold"
+                              >
+                                Desconsolidar
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>

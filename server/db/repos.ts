@@ -75,6 +75,11 @@ export async function initDb() {
     await pool.query(fs.readFileSync(trackingLevelsSchemaPath, 'utf8'));
   }
 
+  const multiLegTrackingSchemaPath = path.resolve(process.cwd(), 'migrations', 'V30__multi_leg_manifest_tracking.sql');
+  if (fs.existsSync(multiLegTrackingSchemaPath)) {
+    await pool.query(fs.readFileSync(multiLegTrackingSchemaPath, 'utf8'));
+  }
+
   await pool.query(`CREATE TABLE IF NOT EXISTS admin_settings (
     id INT PRIMARY KEY,
     settings_json JSON NULL,
@@ -1609,11 +1614,206 @@ export const ManifestRepo = {
   },
 
   async attachShipmentToManifest(manifestId: string, shipmentId: string): Promise<void> {
-    await pool.query(`UPDATE shipments SET manifest_id = ? WHERE id = ?`, [manifestId, shipmentId]);
+    const [manifestRows]: any = await pool.query(
+      `SELECT id, destination_hub_id FROM point_manifests WHERE id = ? LIMIT 1`,
+      [manifestId]
+    );
+    const manifest = manifestRows?.[0];
+    if (!manifest) throw new Error('Manifiesto no encontrado.');
+
+    const [shipmentRows]: any = await pool.query(
+      `SELECT id, manifest_id FROM shipments WHERE id = ? LIMIT 1`,
+      [shipmentId]
+    );
+    const shipment = shipmentRows?.[0];
+    if (!shipment) throw new Error('Envío no encontrado.');
+
+    const [legRows]: any = await pool.query(
+      `SELECT COALESCE(MAX(leg_number), 0) + 1 AS next_leg
+       FROM shipment_manifest_links WHERE shipment_id = ?`,
+      [shipmentId]
+    );
+    const nextLeg = Number(legRows?.[0]?.next_leg || 1);
+
+    await pool.query(
+      `INSERT IGNORE INTO shipment_manifest_links
+         (id, shipment_id, manifest_id, leg_number, attached_at)
+       VALUES (?, ?, ?, ?, NOW())`,
+      [generateId('sml_'), shipmentId, manifestId, nextLeg]
+    );
+
+    await pool.query(
+      `UPDATE shipments
+       SET manifest_id = ?,
+           hub_destination_id = COALESCE(?, hub_destination_id),
+           master_tracking_code = CASE
+             WHEN manifest_id IS NOT NULL AND manifest_id <> ? THEN NULL
+             ELSE master_tracking_code
+           END
+       WHERE id = ?`,
+      [manifestId, manifest.destination_hub_id || null, manifestId, shipmentId]
+    );
     await pool.query(
       `UPDATE point_manifests SET total_items = (SELECT COUNT(*) FROM shipments WHERE manifest_id = ?) WHERE id = ?`,
       [manifestId, manifestId]
     );
+  },
+
+  /**
+   * Crea el siguiente tramo operativo desde un hub de llegada.
+   * El tracking del cliente no cambia: solo cambia el manifiesto actual y su
+   * master. El manifiesto anterior queda consultable por historial.
+   */
+  async createNextLegManifest(
+    previousManifestId: string,
+    currentHubId: string,
+    destinationHubId: string,
+    notes?: string
+  ): Promise<any> {
+    const conn = await pool.getConnection();
+    let shipmentRows: any[] = [];
+    let previousManifest: any;
+    let nextManifestId = '';
+    let nextManifestNumber = '';
+    let nextMasterTracking = '';
+    try {
+      await conn.beginTransaction();
+
+      const [previousRows]: any = await conn.query(
+        `SELECT * FROM point_manifests WHERE id = ? LIMIT 1 FOR UPDATE`,
+        [previousManifestId]
+      );
+      previousManifest = previousRows?.[0];
+      if (!previousManifest) throw new Error('Manifiesto anterior no encontrado.');
+      if (previousManifest.destination_hub_id && previousManifest.destination_hub_id !== currentHubId) {
+        throw new Error('El manifiesto no pertenece al Hub que intenta crear el siguiente tramo.');
+      }
+      if (!['received_hub', 'completed'].includes(previousManifest.status)) {
+        throw new Error('El manifiesto debe estar recibido en el Hub antes de crear el siguiente tramo.');
+      }
+
+      const [destinationRows]: any = await conn.query(
+        `SELECT id, name, city FROM hubs WHERE id = ? AND is_active = 1 LIMIT 1`,
+        [destinationHubId]
+      );
+      const destinationHub = destinationRows?.[0];
+      if (!destinationHub) throw new Error('El Hub destino no existe o está inactivo.');
+      if (destinationHubId === currentHubId) throw new Error('El Hub destino debe ser diferente al Hub actual.');
+
+      const [currentShipments]: any = await conn.query(
+        `SELECT s.id, s.tracking_code
+         FROM shipments s
+         WHERE s.manifest_id = ?
+         ORDER BY s.created_at ASC
+         FOR UPDATE`,
+        [previousManifestId]
+      );
+      shipmentRows = currentShipments || [];
+      if (!shipmentRows.length) throw new Error('El manifiesto no tiene envíos activos para transferir.');
+
+      nextManifestId = generateId('man_');
+      const year = new Date().getFullYear();
+      const prefix = previousManifest.category === 'documents' ? 'DOC' : (previousManifest.category === 'parcels' ? 'PAR' : 'MIX');
+      const manifestNumber = `MAN-${prefix}-LEG-${year}-${crypto.randomInt(1000, 9999)}`;
+      nextManifestNumber = manifestNumber;
+      nextMasterTracking = `MST-${prefix}-${Date.now().toString().slice(-8)}`;
+
+      await conn.query(
+        `INSERT INTO point_manifests
+           (id, manifest_number, point_id, origin_hub_id, destination_hub_id,
+            category, total_items, min_items_threshold, status,
+            master_tracking_code, provider_code, courier_name,
+            broker_quote_service, notes, dispatched_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'in_transit_hub', ?, 'hub_transfer', ?, ?, ?, ?, NOW())`,
+        [
+          nextManifestId,
+          manifestNumber,
+          previousManifest.point_id,
+          currentHubId,
+          destinationHubId,
+          previousManifest.category,
+          shipmentRows.length,
+          Number(previousManifest.min_items_threshold || 10),
+          nextMasterTracking,
+          'Ship24Go Hub Transfer',
+          `Tramo ${previousManifest.manifest_number} → ${manifestNumber}`,
+          notes?.trim() || `Transferencia operativa hacia ${destinationHub.name} (${destinationHub.city})`
+        ]
+      );
+
+      for (const shipment of shipmentRows) {
+        const [legRows]: any = await conn.query(
+          `SELECT COALESCE(MAX(leg_number), 0) + 1 AS next_leg
+           FROM shipment_manifest_links WHERE shipment_id = ?`,
+          [shipment.id]
+        );
+        const nextLeg = Number(legRows?.[0]?.next_leg || 1);
+        await conn.query(
+          `INSERT INTO shipment_manifest_links
+             (id, shipment_id, manifest_id, leg_number, attached_at)
+           VALUES (?, ?, ?, ?, NOW())`,
+          [generateId('sml_'), shipment.id, nextManifestId, nextLeg]
+        );
+      }
+
+      await conn.query(
+        `UPDATE shipments
+         SET manifest_id = ?,
+             hub_destination_id = ?,
+             status = 'in_transit',
+             status_label = ?,
+             master_tracking_code = ?
+         WHERE manifest_id = ?`,
+        [
+          nextManifestId,
+          destinationHubId,
+          `En tránsito Hub ${currentHubId} → ${destinationHub.city}`,
+          nextMasterTracking,
+          previousManifestId
+        ]
+      );
+      await conn.query(
+        `UPDATE point_operations po
+         INNER JOIN shipments s ON s.id = po.shipment_id
+         SET po.status = 'in_route', po.updated_at = NOW()
+         WHERE s.manifest_id = ? AND po.status NOT IN ('cancelled', 'delivered')`,
+        [nextManifestId]
+      );
+      await conn.query(
+        `UPDATE point_manifests
+         SET status = 'completed',
+             notes = CONCAT(COALESCE(notes, ''), ?)
+         WHERE id = ?`,
+        [` | Transferido al siguiente tramo ${manifestNumber}. `, previousManifestId]
+      );
+
+      await conn.commit();
+    } catch (error) {
+      await conn.rollback().catch(() => {});
+      throw error;
+    } finally {
+      conn.release();
+    }
+
+    const hubLoc = await TrackingEventRepo.getHubLocation(currentHubId).catch(() => ({}));
+    for (const shipment of shipmentRows) {
+      try {
+        await TrackingEventRepo.create({
+          shipment_id: shipment.id,
+          tracking_code: shipment.tracking_code,
+          status_code: 'in_transit',
+          status_label: 'Despachado al siguiente Hub',
+          description: `El envío conserva su tracking ${shipment.tracking_code}. Transferido del manifiesto ${previousManifest.manifest_number} al manifiesto ${nextManifestNumber} con Master Tracking ${nextMasterTracking}, rumbo a ${destinationHubId}.`,
+          ...hubLoc,
+          location: hubLoc.city ? `${hubLoc.city}, Hub de Transferencia` : 'Hub de Transferencia'
+        });
+      } catch {}
+    }
+
+    return {
+      previousManifest: previousManifest,
+      manifest: await this.getManifestById(nextManifestId)
+    };
   },
 
   async closeManifest(manifestId: string, pointId: string, notes?: string): Promise<any> {
@@ -1780,8 +1980,47 @@ export const ManifestRepo = {
     const baseWeight = 5.0;
     const extraWeight = Math.max(0, weight - baseWeight);
 
+    // Primer tramo USA ➔ Hub Miami (Doral, FL) para la importación USA → RD.
+    if (destHubId === 'hub_mia_01' && !originHubId.includes('sdq') && originHubId !== 'hub_sdq_luperon') {
+      const base = 28.00;
+      const perExtraKg = 3.25;
+      const total = Math.round((base + extraWeight * perExtraKg) * 100) / 100;
+      return [
+        {
+          provider_code: 'logihub_intl',
+          courier_name: 'LogiHub USA Gateway',
+          service_name: 'USA Hub ➔ Hub Miami (Doral, FL)',
+          transit_days: '1-3 días hábiles',
+          rate_amount: total,
+          currency: 'USD',
+          is_recommended: true,
+          tag: 'Consolidación USA → Miami',
+          is_live_api: false,
+          source: 'Tarifa operativa interna Ship24Go',
+          per_kg_detail: `$${base.toFixed(2)} base (hasta 5kg) + $${perExtraKg.toFixed(2)}/kg adicional`,
+          total_weight: weight,
+          extra_units: extraUnits,
+          note: 'Primer tramo. Al recibir en Miami se genera automáticamente el siguiente Master hacia el Hub SDQ.'
+        },
+        {
+          provider_code: 'easypost',
+          courier_name: 'EasyPost USA Gateway',
+          service_name: 'USA Origin ➔ Miami Gateway',
+          transit_days: '2-4 días hábiles',
+          rate_amount: Math.round((base + 9 + extraWeight * 4.1) * 100) / 100,
+          currency: 'USD',
+          is_recommended: false,
+          tag: 'Alternativa USA',
+          is_live_api: false,
+          source: 'Tarifa de contingencia',
+          total_weight: weight,
+          extra_units: extraUnits
+        }
+      ];
+    }
+
     // Corredor Inverso de Exportación: República Dominicana (SDQ) ➔ Hub Miami (HUB-MIA Doral, FL)
-    if (destHubId === 'hub_mia_01' || originHubId.includes('sdq') || originHubId === 'hub_sdq_luperon') {
+    if (originHubId.includes('sdq') || originHubId === 'hub_sdq_luperon') {
       const logihubBase = 36.00;
       const logihubPerExtraKg = 3.50;
       const logihubTotal = Math.round((logihubBase + extraWeight * logihubPerExtraKg) * 100) / 100;
@@ -2033,6 +2272,9 @@ export const ManifestRepo = {
 
     const masterTracking = `MST-${manifest.category === 'documents' ? 'DOC' : 'PAR'}-${Date.now().toString().slice(-8)}`;
     const weight = Math.max(0.5, Number(data.totalWeight) || Number(manifest.total_weight) || 5.0);
+    const destinationLabel = manifest.destination_hub_name
+      ? `${manifest.destination_hub_name} (${manifest.destination_hub_city || ''})`
+      : 'Hub de destino';
 
     await pool.query(
       `UPDATE point_manifests 
@@ -2051,10 +2293,10 @@ export const ManifestRepo = {
     await pool.query(
       `UPDATE shipments 
        SET status = 'in_transit', 
-           status_label = 'En Tránsito Internacional hacia Hub SDQ',
+           status_label = ?,
            master_tracking_code = ? 
        WHERE manifest_id = ?`,
-      [masterTracking, manifestId]
+      [`En Tránsito Internacional hacia ${destinationLabel}`, masterTracking, manifestId]
     );
     await pool.query(
       `UPDATE point_operations po
@@ -2073,7 +2315,7 @@ export const ManifestRepo = {
           tracking_code: shp.tracking_code,
           status_code: 'in_transit',
           status_label: 'Despachado Internacional',
-          description: `Despachado con ${data.courierName} (${data.serviceName}). Master Tracking: ${masterTracking}. Peso consolidado: ${weight.toFixed(2)} kg. En ruta a HUB Santo Domingo (SDQ).`,
+          description: `Despachado con ${data.courierName} (${data.serviceName}). Master Tracking: ${masterTracking}. Peso consolidado: ${weight.toFixed(2)} kg. En ruta a ${destinationLabel}.`,
           location: manifest.origin_hub_city || 'Boston Hub'
         });
       } catch {}
