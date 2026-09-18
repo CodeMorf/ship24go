@@ -18,6 +18,17 @@ CREATE TABLE IF NOT EXISTS hubs (
   INDEX idx_hubs_country_code (country, code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Productos que utiliza el POS de Point. Deben existir antes de insertar
+-- point_operations porque point_operations.product_id tiene FK estricta.
+INSERT IGNORE INTO point_products
+  (id, code, name, description, base_price, commission_percent, currency, is_active, sort_order)
+VALUES
+  ('pp_legal_document', 'legal_document', 'Documento legal', 'Documentos legales y notariales', 0.00, 15.000, 'USD', 1, 12),
+  ('pp_box_s', 'box_s', 'Caja pequeña', 'Paquete Box S', 0.00, 15.000, 'USD', 1, 22),
+  ('pp_box_m', 'box_m', 'Caja mediana', 'Paquete Box M', 0.00, 15.000, 'USD', 1, 23),
+  ('pp_box_l', 'box_l', 'Caja grande', 'Paquete Box L', 0.00, 15.000, 'USD', 1, 24),
+  ('pp_heavy_parcel', 'heavy_parcel', 'Paquete pesado', 'Paquete de mayor peso', 0.00, 15.000, 'USD', 1, 25);
+
 -- 2. TARIFAS PROPIAS INTERNACIONALES SHIP24GO
 CREATE TABLE IF NOT EXISTS international_tariffs (
   id CHAR(36) PRIMARY KEY,
@@ -84,19 +95,12 @@ CREATE TABLE IF NOT EXISTS point_cash_register (
   INDEX idx_cash_point_created (point_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 5. SEMBRAR HUBS INICIALES
-INSERT IGNORE INTO hubs (id, code, name, hub_type, country, city, postal_code, address, manager_name, phone, is_active)
-VALUES
-  ('hub_bos_01', 'HUB-BOS', 'Boston Express Distribution Hub', 'origin', 'US', 'Boston', '02114', '100 Cambridge St, Boston, MA 02114', 'Carlos Morales', '+1 (617) 555-0199', 1),
-  ('hub_mia_01', 'HUB-MIA', 'Miami International Gateway Hub', 'transit', 'US', 'Doral', '33122', '8200 NW 27th St, Doral, FL 33122', 'Elena Rostova', '+1 (305) 555-0142', 1),
-  ('hub_sdq_01', 'HUB-SDQ', 'Santo Domingo Central Logistics Hub', 'destination', 'DO', 'Santo Domingo', '10101', 'Av. Luperon 45, Santo Domingo, D.N.', 'Rafael Mendez', '+1 (809) 555-0177', 1);
-
--- 6. SEMBRAR TARIFAS PROPIAS SHIP24GO (Ruta USA -> Republica Dominicana)
+-- 5. Tarifas base Ship24Go (los Hubs reales se asignan desde el panel Admin)
 INSERT IGNORE INTO international_tariffs 
   (id, route_name, origin_country, origin_hub_id, dest_country, dest_hub_id, product_type, product_name, description, base_price, point_commission, hub_cost, max_weight_kg, extra_kg_price, currency, transit_days_min, transit_days_max, is_active, sort_order)
 VALUES
-  ('trf_us_do_doc', 'USA -> Republica Dominicana', 'US', 'hub_bos_01', 'DO', 'hub_sdq_01', 'document', 'Sobre / Documento Estandar', 'Documentos, cartas, partidas de nacimiento y papeles (hasta 0.5 kg). Agrupable en Saca.', 8.00, 1.50, 2.00, 0.50, 4.00, 'USD', 3, 5, 1, 1),
-  ('trf_us_do_legal', 'USA -> Republica Dominicana', 'US', 'hub_bos_01', 'DO', 'hub_sdq_01', 'legal_document', 'Documento Legal / Notarial Urgente', 'Poderes notariales, contratos, titulos con custodia prioritaria y sobre sellado.', 15.00, 3.00, 3.50, 1.00, 6.00, 'USD', 2, 4, 1, 2),
-  ('trf_us_do_box_s', 'USA -> Republica Dominicana', 'US', 'hub_bos_01', 'DO', 'hub_sdq_01', 'box_s', 'Caja Pequena (Box S - hasta 2 kg)', 'Cajas compactas de medicinas, cosmeticos, ropa o repuestos ligeros.', 18.00, 3.00, 5.00, 2.00, 5.00, 'USD', 4, 7, 1, 3),
-  ('trf_us_do_box_m', 'USA -> Republica Dominicana', 'US', 'hub_bos_01', 'DO', 'hub_sdq_01', 'box_m', 'Caja Mediana (Box M - hasta 5 kg)', 'Cajas medianas para familiares y comercio minorista.', 32.00, 5.00, 8.00, 5.00, 5.00, 'USD', 4, 7, 1, 4),
-  ('trf_us_do_box_l', 'USA -> Republica Dominicana', 'US', 'hub_bos_01', 'DO', 'hub_sdq_01', 'box_l', 'Caja Grande (Box L - hasta 10 kg)', 'Cajas grandes para envios de volumen familiar.', 55.00, 8.00, 12.00, 10.00, 4.50, 'USD', 5, 8, 1, 5);
+  ('trf_us_do_doc', 'USA -> Republica Dominicana', 'US', NULL, 'DO', NULL, 'document', 'Sobre / Documento Estandar', 'Documentos, cartas, partidas de nacimiento y papeles (hasta 0.5 kg). Agrupable en Saca.', 8.00, 1.50, 2.00, 0.50, 4.00, 'USD', 3, 5, 1, 1),
+  ('trf_us_do_legal', 'USA -> Republica Dominicana', 'US', NULL, 'DO', NULL, 'legal_document', 'Documento Legal / Notarial Urgente', 'Poderes notariales, contratos, titulos con custodia prioritaria y sobre sellado.', 15.00, 3.00, 3.50, 1.00, 6.00, 'USD', 2, 4, 1, 2),
+  ('trf_us_do_box_s', 'USA -> Republica Dominicana', 'US', NULL, 'DO', NULL, 'box_s', 'Caja Pequena (Box S - hasta 2 kg)', 'Cajas compactas de medicinas, cosmeticos, ropa o repuestos ligeros.', 18.00, 3.00, 5.00, 2.00, 5.00, 'USD', 4, 7, 1, 3),
+  ('trf_us_do_box_m', 'USA -> Republica Dominicana', 'US', NULL, 'DO', NULL, 'box_m', 'Caja Mediana (Box M - hasta 5 kg)', 'Cajas medianas para familiares y comercio minorista.', 32.00, 5.00, 8.00, 5.00, 5.00, 'USD', 4, 7, 1, 4),
+  ('trf_us_do_box_l', 'USA -> Republica Dominicana', 'US', NULL, 'DO', NULL, 'box_l', 'Caja Grande (Box L - hasta 10 kg)', 'Cajas grandes para envios de volumen familiar.', 55.00, 8.00, 12.00, 10.00, 4.50, 'USD', 5, 8, 1, 5);

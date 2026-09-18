@@ -253,25 +253,17 @@ const LOCATOR_TEXTS: Record<string, Record<string, string>> = {
   }
 };
 
-// Punto por defecto verificado en Boston, MA
-const DEFAULT_BOSTON_POINT: PointItem = {
-  id: 'pnt_boston_cambridge_01',
-  business_name: 'Boston Express Hub & Ship Point',
-  contact_name: 'David Miller',
-  phone: '+1 617-555-0198',
-  email: 'boston.point@ship24go.com',
-  country: 'US',
-  currency: 'USD',
-  address_line1: '100 Cambridge St',
-  civic_number: '100',
-  city: 'Boston',
-  province: 'MA',
-  postal_code: '02114',
-  formatted_address: '100 Cambridge St, Boston, MA 02114, USA',
-  google_place_id: 'ChIJGzMvKkV644kR5fC9L_wUo3M',
-  latitude: 42.3611450,
-  longitude: -71.0610330,
-  hours: 'Mon-Fri: 8:00 AM - 7:00 PM · Sat: 9:00 AM - 2:00 PM'
+const EMPTY_POINT: PointItem = {
+  id: '',
+  business_name: '',
+  contact_name: '',
+  country: '',
+  currency: '',
+  address_line1: '',
+  city: '',
+  formatted_address: '',
+  latitude: 0,
+  longitude: 0
 };
 
 export const PointsLocator: React.FC = () => {
@@ -288,8 +280,8 @@ export const PointsLocator: React.FC = () => {
 
   const pt = LOCATOR_TEXTS[langKey] || LOCATOR_TEXTS.es;
 
-  const [points, setPoints] = useState<PointItem[]>([DEFAULT_BOSTON_POINT]);
-  const [selectedPoint, setSelectedPoint] = useState<PointItem>(DEFAULT_BOSTON_POINT);
+  const [points, setPoints] = useState<PointItem[]>([]);
+  const [selectedPoint, setSelectedPoint] = useState<PointItem>(EMPTY_POINT);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'boston'>('all');
   const [loading, setLoading] = useState(false);
@@ -310,21 +302,21 @@ export const PointsLocator: React.FC = () => {
         if (res?.success && Array.isArray(res?.points) && res.points.length > 0) {
           const list: PointItem[] = res.points.map((p: any) => ({
             ...p,
-            latitude: Number(p.latitude) || DEFAULT_BOSTON_POINT.latitude,
-            longitude: Number(p.longitude) || DEFAULT_BOSTON_POINT.longitude,
+            latitude: Number(p.latitude) || 0,
+            longitude: Number(p.longitude) || 0,
             hours: pt.hoursVal
           }));
           setPoints(list);
           setSelectedPoint(list[0]);
         } else {
-          setPoints([DEFAULT_BOSTON_POINT]);
-          setSelectedPoint(DEFAULT_BOSTON_POINT);
+          setPoints([]);
+          setSelectedPoint(EMPTY_POINT);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setPoints([DEFAULT_BOSTON_POINT]);
-          setSelectedPoint(DEFAULT_BOSTON_POINT);
+          setPoints([]);
+          setSelectedPoint(EMPTY_POINT);
         }
       })
       .finally(() => {
@@ -352,14 +344,14 @@ export const PointsLocator: React.FC = () => {
   }, [points, searchQuery, activeFilter]);
 
   const mapEmbedUrl = useMemo(() => {
-    const lat = selectedPoint.latitude || 42.361145;
-    const lng = selectedPoint.longitude || -71.061033;
+    const lat = selectedPoint.latitude;
+    const lng = selectedPoint.longitude;
     return `https://maps.google.com/maps?q=${lat},${lng}&hl=${langKey}&z=16&output=embed`;
   }, [selectedPoint, langKey]);
 
   const googleMapsDirectionsUrl = useMemo(() => {
-    const lat = selectedPoint.latitude || 42.361145;
-    const lng = selectedPoint.longitude || -71.061033;
+    const lat = selectedPoint.latitude;
+    const lng = selectedPoint.longitude;
     return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
   }, [selectedPoint]);
 

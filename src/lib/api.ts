@@ -39,7 +39,11 @@ export const api = {
   getPointOperations: () => fetchAPI('/point/operations'),
   createPointOperation: (data: any) => fetchAPI('/point/operations', { method: 'POST', body: JSON.stringify(data) }),
   getPointTariffs: (originCountry = 'US', destCountry = 'DO') => fetchAPI(`/point/tariffs?originCountry=${encodeURIComponent(originCountry)}&destCountry=${encodeURIComponent(destCountry)}`),
-  createPointTerminalShipment: (data: any) => fetchAPI('/point/terminal/create-shipment', { method: 'POST', body: JSON.stringify(data) }),
+  createPointTerminalShipment: (data: any) => fetchAPI('/point/terminal/create-shipment', {
+    method: 'POST',
+    headers: data?.idempotencyKey ? { 'Idempotency-Key': String(data.idempotencyKey) } : {},
+    body: JSON.stringify(data)
+  }),
   getPointBankAccounts: () => fetchAPI('/point/bank-accounts'),
   savePointBankAccount: (data: any) => fetchAPI('/point/bank-accounts', { method: 'POST', body: JSON.stringify(data) }),
   deletePointBankAccount: (id: string) => fetchAPI(`/point/bank-accounts/${encodeURIComponent(id)}`, { method: 'DELETE' }),

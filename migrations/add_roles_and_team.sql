@@ -1,9 +1,7 @@
--- 1. Actualizar contraseña de admin a Gaia1234
-UPDATE users 
-SET password_hash = 'bcf97f66a9cda1d28ca227c23338a336486a6b1f2a5d0787b331c05d4584b619284a727c4ca652b34340252e952a0f679b72b0411f2a3967c3c90ec4373083e5' 
-WHERE email = 'admin@ship24go.com';
+-- Las credenciales se gestionan fuera de las migraciones mediante el entorno.
+-- Esta migración solo prepara roles y permisos; no cambia contraseñas.
 
--- 2. Crear tabla de roles
+-- 1. Crear tabla de roles
 CREATE TABLE IF NOT EXISTS roles (
   id VARCHAR(36) PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
@@ -15,7 +13,7 @@ CREATE TABLE IF NOT EXISTS roles (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 3. Modificar users para admitir roles extendidos y columnas
+-- 2. Modificar users para admitir roles extendidos y columnas
 ALTER TABLE users MODIFY COLUMN role ENUM('customer','support','super_admin','admin','operations','finance','custom') NOT NULL DEFAULT 'customer';
 
 -- Agregar role_id si no existe
@@ -32,7 +30,7 @@ PREPARE stmt FROM @sql_perms;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- 4. Sembrar roles por defecto
+-- 3. Sembrar roles por defecto
 INSERT INTO roles (id, name, slug, description, permissions, is_system)
 VALUES 
 (
@@ -79,6 +77,5 @@ ON DUPLICATE KEY UPDATE
   permissions = VALUES(permissions),
   description = VALUES(description);
 
--- 5. Vincular Super Admin actual al rol role_super_admin
+-- 4. Vincular Super Admin actual al rol role_super_admin
 UPDATE users SET role_id = 'role_super_admin' WHERE role = 'super_admin' AND (role_id IS NULL OR role_id = '');
-

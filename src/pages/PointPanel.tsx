@@ -505,6 +505,9 @@ export default function PointPanel() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'bank_transfer'>('cash');
   const [selectedSystemBankId, setSelectedSystemBankId] = useState('');
   const [bankPaymentRef, setBankPaymentRef] = useState('');
+  // Se conserva durante los reintentos para que un timeout o doble clic no
+  // cree dos envíos para la misma operación física.
+  const [submissionKey, setSubmissionKey] = useState<string | null>(null);
 
   // Datos Destinatario en RD
   const [recipient, setRecipient] = useState({
@@ -763,11 +766,16 @@ export default function PointPanel() {
     setSubmitting(true);
     setError('');
     setNotice('');
+    const requestKey = submissionKey || (
+      globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    );
+    setSubmissionKey(requestKey);
 
     try {
       const tariffId = deliveryType === 'home' ? currentPackage.homeTariffId : currentPackage.branchTariffId;
 
       const payload = {
+        idempotencyKey: requestKey,
         tariffId,
         paymentMethod,
         paymentCurrency: collectCurrency,
@@ -837,6 +845,7 @@ export default function PointPanel() {
         notes: ''
       });
       setBankPaymentRef('');
+      setSubmissionKey(null);
 
       await loadData();
     } catch (err: any) {
@@ -1841,7 +1850,7 @@ export default function PointPanel() {
                       <input
                         required
                         type="tel"
-                        placeholder={corridor === 'DO_US' ? 'Ej: +1 (305) 555-0199' : 'Ej: 809-555-0199'}
+                        placeholder={corridor === 'DO_US' ? 'Ej: +1 305 000 0000' : 'Ej: 809 000 0000'}
                         value={recipient.phone}
                         onChange={e => setRecipient({ ...recipient, phone: e.target.value })}
                         className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3.5 py-2 text-xs text-slate-900 dark:text-white outline-none focus:border-blue-500 font-medium"
@@ -3174,7 +3183,7 @@ export default function PointPanel() {
                       type="text"
                       value={customBranchPhone}
                       onChange={e => setCustomBranchPhone(e.target.value)}
-                      placeholder="+1 617-555-0198"
+                      placeholder="+1 617 000 0000"
                       className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3.5 py-2 outline-none font-medium text-slate-900 dark:text-white"
                     />
                   </div>
@@ -3804,7 +3813,7 @@ export default function PointPanel() {
                   <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Teléfono</label>
                   <input
                     type="tel"
-                    placeholder="809-555-0100"
+                    placeholder="809 000 0000"
                     value={employeeForm.phone}
                     onChange={e => setEmployeeForm({ ...employeeForm, phone: e.target.value })}
                     className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-2 outline-none"

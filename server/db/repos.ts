@@ -57,53 +57,17 @@ export async function initDb() {
     await pool.query(fs.readFileSync(pointSchemaPath, 'utf8'));
   }
 
-  // Sembrar Point comercial verificado en Boston, MA (solicitado por usuario)
-  try {
-    const [existingBoston]: any = await pool.query(
-      `SELECT id FROM points WHERE id = 'pnt_boston_cambridge_01' OR google_place_id = 'ChIJGzMvKkV644kR5fC9L_wUo3M' LIMIT 1`
-    );
-    if (!existingBoston || existingBoston.length === 0) {
-      const bostonUserId = 'usr_point_boston_01';
-      const [userExists]: any = await pool.query(
-        `SELECT id FROM users WHERE id = ? OR email = ? LIMIT 1`,
-        [bostonUserId, 'boston.point@ship24go.com']
-      );
-      if (!userExists || userExists.length === 0) {
-        const hashedPassword = await hashPassword('BostonPoint2026!');
-        await pool.query(
-          `INSERT INTO users (id, name, email, password_hash, role, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'customer', 'active', NOW(), NOW())`,
-          [bostonUserId, 'David Miller (Boston Express)', 'boston.point@ship24go.com', hashedPassword]
-        );
-      }
-      const actualUserId = (userExists && userExists[0]?.id) || bostonUserId;
-      await pool.query(
-        `INSERT INTO points (
-          id, user_id, business_name, contact_name, email, phone, country, currency,
-          address_line1, civic_number, city, province, postal_code, formatted_address,
-          google_place_id, latitude, longitude, status, review_note, created_at, updated_at
-        ) VALUES (
-          'pnt_boston_cambridge_01', ?, 'Boston Express Hub & Ship Point', 'David Miller',
-          'boston.point@ship24go.com', '+1 617-555-0198', 'US', 'USD',
-          '100 Cambridge St', '100', 'Boston', 'MA', '02114',
-          '100 Cambridge St, Boston, MA 02114, USA',
-          'ChIJGzMvKkV644kR5fC9L_wUo3M', 42.3611450, -71.0610330, 'approved',
-          'Punto oficial verificado en Boston, MA - Recepción y emisión de paquetería',
-          NOW(), NOW()
-        ) ON DUPLICATE KEY UPDATE status = 'approved', updated_at = NOW()`,
-        [actualUserId]
-      );
-      await pool.query(
-        `INSERT IGNORE INTO point_products (id, code, name, description, base_price, commission_percent, currency, is_active, sort_order)
-         VALUES
-           ('pp_us_envelope', 'us_envelope', 'Sobre Express / Documents', 'Sobres, cartas y documentos urgentes', 8.00, 15.000, 'USD', 1, 1),
-           ('pp_us_package', 'us_package', 'Paquete Estándar / Parcel', 'Cajas y paquetes hasta 5 kg', 18.00, 10.000, 'USD', 1, 2),
-           ('pp_us_box', 'us_box', 'Caja Grande / Heavy Parcel', 'Paquetes de mayor volumen hasta 20 kg', 35.00, 8.000, 'USD', 1, 3)`
-      );
-      console.log('[MySQL] Boston Point y productos USD sembrados con éxito.');
-    }
-  } catch (err: any) {
-    console.warn('[MySQL] Advertencia sembrando Boston Point:', err?.message || err);
+  // El POS Point depende también de tarifas, manifiestos, Hubs y caja. Esta
+  // migración es aditiva/idempotente y debe formar parte del arranque de una
+  // instalación limpia, no quedar únicamente en un script manual.
+  const pointOperationsSchemaPath = path.resolve(process.cwd(), 'migrations', 'V27__point_terminal_manifests_tariffs.sql');
+  if (fs.existsSync(pointOperationsSchemaPath)) {
+    await pool.query(fs.readFileSync(pointOperationsSchemaPath, 'utf8'));
+  }
+
+  const pointRuntimeSchemaPath = path.resolve(process.cwd(), 'migrations', 'V28__point_hub_driver_runtime.sql');
+  if (fs.existsSync(pointRuntimeSchemaPath)) {
+    await pool.query(fs.readFileSync(pointRuntimeSchemaPath, 'utf8'));
   }
 
   await pool.query(`CREATE TABLE IF NOT EXISTS admin_settings (
@@ -1049,7 +1013,10 @@ export const TeamRepo = {
 
   async createMember(data: any): Promise<any> {
     const id = generateId('usr');
-    const passwordHash = hashPassword(data.password || 'Ship24go2026!');
+    if (!data.password || String(data.password).length < 12) {
+      throw new Error('Team member password must contain at least 12 characters.');
+    }
+    const passwordHash = hashPassword(String(data.password));
     const role = data.role || 'support';
     const roleId = data.role_id || null;
     const customPerms = data.custom_permissions ? JSON.stringify(data.custom_permissions) : null;
@@ -1277,8 +1244,8 @@ export const PointRepo = {
     await pool.query(
       `INSERT INTO point_operations (
         id, point_id, shipment_id, product_id, product_code, sale_amount,
-        commission_amount, currency, status, receipt_code
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        commission_amount, currency, status, receipt_code, idempotency_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         operation.id,
         operation.point_id,
@@ -1289,7 +1256,8 @@ export const PointRepo = {
         operation.commission_amount,
         operation.currency || 'DOP',
         operation.status || 'received',
-        operation.receipt_code
+        operation.receipt_code,
+        operation.idempotency_key || null
       ]
     );
   },
@@ -1646,6 +1614,12 @@ export const ManifestRepo = {
     if (manifest.point_id !== pointId) throw new Error('No autorizado para modificar este manifiesto.');
     if (manifest.status !== 'open') throw new Error('Este manifiesto ya fue cerrado previamente.');
 
+    const currentItems = Number(manifest.current_items_count || 0);
+    const minimumItems = Math.max(1, Number(manifest.min_items_threshold || 10));
+    if (currentItems < minimumItems) {
+      throw new Error(`La valija todavía no cumple el mínimo de ${minimumItems} piezas. Actualmente tiene ${currentItems}.`);
+    }
+
     const masterTracking = `MST-${manifest.category === 'documents' ? 'DOC' : 'PAR'}-${Date.now().toString().slice(-8)}`;
 
     await pool.query(
@@ -1668,6 +1642,13 @@ export const ManifestRepo = {
            master_tracking_code = ? 
        WHERE manifest_id = ?`,
       [masterTracking, manifestId]
+    );
+    await pool.query(
+      `UPDATE point_operations po
+       INNER JOIN shipments s ON s.id = po.shipment_id
+       SET po.status = 'at_hub', po.updated_at = NOW()
+       WHERE s.manifest_id = ? AND po.status NOT IN ('cancelled', 'delivered')`,
+      [manifestId]
     );
 
     // Registrar evento de trazabilidad en lote para cada envío
@@ -1698,56 +1679,88 @@ export const ManifestRepo = {
       notes?: string;
     }
   ): Promise<any> {
-    const manifest = await this.getManifestById(manifestId);
-    if (!manifest) throw new Error('Manifiesto no encontrado.');
-    if (manifest.point_id !== pointId) throw new Error('No autorizado para modificar este manifiesto.');
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
 
-    // Generar tracking de almacén de 6 dígitos numéricos si no fue enviado
-    const warehouseTracking = data.warehouseTracking && /^\d{6}$/.test(data.warehouseTracking.trim())
-      ? data.warehouseTracking.trim()
-      : Math.floor(100000 + Math.random() * 900000).toString();
+      const [manifestRows]: any = await conn.query(
+        `SELECT * FROM point_manifests WHERE id = ? LIMIT 1`,
+        [manifestId]
+      );
+      const manifest = manifestRows?.[0];
+      if (!manifest) throw new Error('Manifiesto no encontrado.');
+      if (manifest.point_id !== pointId) throw new Error('No autorizado para modificar este manifiesto.');
+      if (!['closed', 'in_transit_hub', 'received_hub'].includes(manifest.status)) {
+        throw new Error('El manifiesto no está listo para entrada en almacén.');
+      }
 
-    const weight = Math.max(0.5, Number(data.totalWeight) || Number(manifest.total_weight) || 5.0);
-    const location = data.warehouseLocation?.trim() || 'Almacén Boston HUB-BOS - Zona A / Estante 1';
+      // Generar tracking de almacén de 6 dígitos numéricos si no fue enviado
+      const warehouseTracking = data.warehouseTracking && /^\d{6}$/.test(data.warehouseTracking.trim())
+        ? data.warehouseTracking.trim()
+        : Math.floor(100000 + Math.random() * 900000).toString();
 
-    await pool.query(
-      `UPDATE point_manifests 
-       SET status = 'closed',
-           warehouse_location = ?,
-           warehouse_tracking = ?,
-           total_weight = ?,
-           notes = COALESCE(?, notes),
-           closed_at = COALESCE(closed_at, NOW())
-       WHERE id = ?`,
-      [location, warehouseTracking, weight, data.notes?.trim() || null, manifestId]
-    );
+      const weight = Math.max(0.5, Number(data.totalWeight) || Number(manifest.total_weight) || 5.0);
+      const location = data.warehouseLocation?.trim() || 'Almacén Boston HUB-BOS - Zona A / Estante 1';
 
-    // Actualizar envíos dentro de la valija
-    await pool.query(
-      `UPDATE shipments 
-       SET status = 'at_hub', 
-           status_label = 'En Almacén Hub (Ubicación: ' ? ')',
-           master_tracking_code = COALESCE(master_tracking_code, ?)
-       WHERE manifest_id = ?`,
-      [location, `WH-${warehouseTracking}`, manifestId]
-    );
+      await conn.query(
+        `UPDATE point_manifests
+         SET status = 'closed',
+             warehouse_location = ?,
+             warehouse_tracking = ?,
+             total_weight = ?,
+             notes = COALESCE(?, notes),
+             closed_at = COALESCE(closed_at, NOW())
+         WHERE id = ?`,
+        [location, warehouseTracking, weight, data.notes?.trim() || null, manifestId]
+      );
 
-    // Registrar evento de entrada en almacén
-    const [shipmentRows]: any = await pool.query(`SELECT id, tracking_code FROM shipments WHERE manifest_id = ?`, [manifestId]);
-    for (const shp of shipmentRows) {
-      try {
-        await TrackingEventRepo.create({
-          shipment_id: shp.id,
-          tracking_code: shp.tracking_code,
-          status_code: 'at_hub',
-          status_label: 'Entrada en Almacén Hub',
-          description: `Entrada en Almacén Hub. Ubicación: ${location}. Tracking Almacén: ${warehouseTracking} (6 dígitos). Manifiesto ${manifest.manifest_number}.`,
-          location
-        });
-      } catch {}
+      // Actualizar envíos dentro de la valija. CONCAT evita construir SQL
+      // inválido y mantiene la ubicación como parámetro SQL.
+      await conn.query(
+        `UPDATE shipments
+         SET status = 'at_hub',
+             status_label = CONCAT('En Almacén Hub (Ubicación: ', ?, ')'),
+             master_tracking_code = COALESCE(master_tracking_code, ?)
+         WHERE manifest_id = ?`,
+        [location, `WH-${warehouseTracking}`, manifestId]
+      );
+      await conn.query(
+        `UPDATE point_operations po
+         INNER JOIN shipments s ON s.id = po.shipment_id
+         SET po.status = 'at_hub', po.updated_at = NOW()
+         WHERE s.manifest_id = ? AND po.status NOT IN ('cancelled', 'delivered')`,
+        [manifestId]
+      );
+
+      const [shipmentRows]: any = await conn.query(
+        `SELECT id, tracking_code FROM shipments WHERE manifest_id = ?`,
+        [manifestId]
+      );
+      await conn.commit();
+
+      // Los eventos no deben deshacer la actualización de inventario si un
+      // proveedor de tracking temporalmente falla; el estado principal ya es
+      // atómico y queda disponible para reintentar los eventos.
+      for (const shp of shipmentRows) {
+        try {
+          await TrackingEventRepo.create({
+            shipment_id: shp.id,
+            tracking_code: shp.tracking_code,
+            status_code: 'at_hub',
+            status_label: 'Entrada en Almacén Hub',
+            description: `Entrada en Almacén Hub. Ubicación: ${location}. Tracking Almacén: ${warehouseTracking} (6 dígitos). Manifiesto ${manifest.manifest_number}.`,
+            location
+          });
+        } catch {}
+      }
+
+      return await this.getManifestById(manifestId);
+    } catch (error) {
+      await conn.rollback().catch(() => {});
+      throw error;
+    } finally {
+      conn.release();
     }
-
-    return await this.getManifestById(manifestId);
   },
 
   async calculateBrokerQuotes(
@@ -2035,6 +2048,13 @@ export const ManifestRepo = {
            master_tracking_code = ? 
        WHERE manifest_id = ?`,
       [masterTracking, manifestId]
+    );
+    await pool.query(
+      `UPDATE point_operations po
+       INNER JOIN shipments s ON s.id = po.shipment_id
+       SET po.status = 'in_route', po.updated_at = NOW()
+       WHERE s.manifest_id = ? AND po.status NOT IN ('cancelled', 'delivered')`,
+      [manifestId]
     );
 
     // Eventos de trazabilidad para todos los envíos

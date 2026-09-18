@@ -488,7 +488,7 @@ export default function PointLogin() {
     setError('');
     setSubmittingMaster(true);
     try {
-      const res = await api.login(masterEmail, masterPassword);
+      const res = await api.login({ email: masterEmail, password: masterPassword });
       if (res.token) {
         setAuthToken(res.token);
         localStorage.removeItem('point_current_employee');

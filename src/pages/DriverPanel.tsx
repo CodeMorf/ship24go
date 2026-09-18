@@ -238,6 +238,15 @@ export default function DriverPanel() {
     const canvas = canvasRef.current;
     const signatureImage = hasSignature && canvas ? canvas.toDataURL('image/png') : null;
 
+    const position = await new Promise<GeolocationPosition | null>((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(resolve, () => resolve(null), {
+        enableHighAccuracy: true,
+        maximumAge: 30_000,
+        timeout: 8_000
+      });
+    });
+
     setSubmittingPod(true);
     try {
       const res = await fetch('/api/driver/stop/complete', {
@@ -253,8 +262,8 @@ export default function DriverPanel() {
           signatureImage,
           photoUrl: photoBase64 || null,
           notes: podNotes,
-          lat: 18.4861,
-          lng: -69.9312
+          lat: position?.coords.latitude ?? null,
+          lng: position?.coords.longitude ?? null
         })
       });
       const data = await res.json();

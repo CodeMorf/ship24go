@@ -1,9 +1,18 @@
 // Migration: Add GPS coordinates to hubs + hub_id/lat/lng to tracking_events
 const mysql = require('mysql2/promise');
+require('dotenv').config();
 
 async function main() {
+  const required = ['MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'];
+  const missing = required.filter(key => !process.env[key]);
+  if (missing.length) throw new Error(`Faltan variables MySQL: ${missing.join(', ')}`);
+
   const pool = await mysql.createPool({
-    host: 'localhost', user: 'ship24go', password: 'epJzDBnxxCDmx3cC', database: 'ship24go',
+    host: process.env.MYSQL_HOST,
+    port: Number(process.env.MYSQL_PORT || 3306),
+    user: process.env.MYSQL_USER,
+    password: process.env.MYSQL_PASSWORD,
+    database: process.env.MYSQL_DATABASE,
     waitForConnections: true, connectionLimit: 3
   });
 

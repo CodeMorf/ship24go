@@ -405,10 +405,33 @@ if (!JWT_SECRET || JWT_SECRET.length < 32) {
   throw new Error('Configura JWT_SECRET seguro antes de iniciar producción.');
 }
 
-function generateToken(payload: { userId: string; role: string; adminUserId?: string; impersonated?: boolean }): string {
+type AuthTokenPayload = {
+  userId: string;
+  role: string;
+  adminUserId?: string;
+  impersonated?: boolean;
+  isEmployee?: boolean;
+  employeeId?: string;
+  pointId?: string;
+  employee?: {
+    id: string;
+    name?: string;
+    email?: string;
+    role?: string;
+    permissions?: string[];
+  };
+};
+
+function generateToken(payload: AuthTokenPayload): string {
+  const now = Math.floor(Date.now() / 1000);
+  const tokenPayload = {
+    ...payload,
+    iat: now,
+    exp: now + 12 * 60 * 60
+  };
   const header = { alg: 'HS256', typ: 'JWT' };
   const base64Header = Buffer.from(JSON.stringify(header)).toString('base64url');
-  const base64Payload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const base64Payload = Buffer.from(JSON.stringify(tokenPayload)).toString('base64url');
   
   const signature = crypto
     .createHmac('sha256', JWT_SECRET)
@@ -418,7 +441,7 @@ function generateToken(payload: { userId: string; role: string; adminUserId?: st
   return `${base64Header}.${base64Payload}.${signature}`;
 }
 
-function verifyToken(token: string): { userId: string; role: string; adminUserId?: string; impersonated?: boolean } | null {
+function verifyToken(token: string): (AuthTokenPayload & { iat: number; exp: number }) | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
@@ -430,8 +453,12 @@ function verifyToken(token: string): { userId: string; role: string; adminUserId
       .digest('base64url');
       
     if (signatureB64 !== expectedSig) return null;
-    
-    return JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    if (!payload || typeof payload.userId !== 'string' || typeof payload.exp !== 'number') return null;
+    if (payload.exp <= Math.floor(Date.now() / 1000)) return null;
+
+    return payload;
   } catch {
     return null;
   }
@@ -5531,6 +5558,28 @@ const authMiddleware = async (req: any, res: any, next: any) => {
 
     const permissions = await TeamRepo.getUserPermissions(user.id);
     const point = await PointRepo.getByUserId(user.id);
+    let pointEmployee: any = null;
+    let pointEmployeePermissions: string[] = [];
+
+    // Employee sessions must retain their own identity and permissions. The
+    // owner user is still used for account status, but it must not silently
+    // turn a cashier PIN session into an owner session.
+    if (decoded.isEmployee) {
+      if (!decoded.employeeId || !decoded.pointId || !point || point.id !== decoded.pointId) {
+        return res.status(401).json({ error: 'Sesión de empleado inválida o desactualizada.' });
+      }
+      const [employeeRows]: any = await pool.query(
+        `SELECT id, point_id, name, email, role, permissions, status
+         FROM point_employees WHERE id = ? AND point_id = ? LIMIT 1`,
+        [decoded.employeeId, decoded.pointId]
+      );
+      pointEmployee = employeeRows?.[0] || null;
+      if (!pointEmployee || pointEmployee.status !== 'active') {
+        return res.status(403).json({ error: 'El empleado ya no tiene acceso activo a este Point.' });
+      }
+      const parsedPermissions = safeJsonParse(pointEmployee.permissions, []);
+      pointEmployeePermissions = Array.isArray(parsedPermissions) ? parsedPermissions.map(String) : [];
+    }
     const effectiveRole = point ? 'point' : (user.role || decoded.role || 'customer');
 
     // Normalizar estructura de campos booleanos y JSON para que coincidan con el código frontend
@@ -5542,9 +5591,13 @@ const authMiddleware = async (req: any, res: any, next: any) => {
       phone: user.phone,
       country: user.country,
       currency: normalizeCurrencyCode(point?.currency || user.currency || 'USD'),
-      role: effectiveRole,
+      role: pointEmployee ? 'point_employee' : effectiveRole,
       hasPoint: Boolean(point),
       pointId: point?.id || null,
+      isPointEmployee: Boolean(pointEmployee),
+      employeeId: pointEmployee?.id || null,
+      employeeRole: pointEmployee?.role || null,
+      pointPermissions: pointEmployeePermissions,
       businessType: user.business_type,
       balance: Number(user.balance),
       status: user.status || 'active',
@@ -5590,10 +5643,60 @@ const requireSuperAdmin = (req: any, res: any, next: any) => {
   if (req.user.role === 'super_admin' || (req.user.permissions && req.user.permissions.includes('*'))) {
     return next();
   }
-  if (req.user.role !== 'customer' && req.user.status === 'active') {
+  return res.status(403).json({ error: 'Acceso denegado. Se requieren permisos de Administrador.' });
+};
+
+const requirePointAccess = (permission?: string, ownerOnly = false) => {
+  return (req: any, res: any, next: any) => {
+    if (!req.user) return res.status(401).json({ error: 'Debes iniciar sesión.' });
+    if (!req.user.pointId) return res.status(403).json({ error: 'Esta cuenta no tiene un Point afiliado.' });
+    if (ownerOnly && req.user.isPointEmployee) {
+      return res.status(403).json({ error: 'Esta operación requiere autorización del propietario del Point.' });
+    }
+    if (!req.user.isPointEmployee) return next();
+    const employeePermissions = Array.isArray(req.user.pointPermissions) ? req.user.pointPermissions : [];
+    const aliases: Record<string, string[]> = {
+      'pos.view': ['pos.create'],
+      'pos.receipt': ['pos.create'],
+      'operations.view': ['pos.create'],
+      'manifests.view': ['manifests.manage'],
+      'chat.view': ['chat.send']
+    };
+    const acceptedPermissions = [permission || '', ...(aliases[permission || ''] || [])];
+    if (!permission || employeePermissions.includes('*') || acceptedPermissions.some(p => employeePermissions.includes(p))) return next();
+    return res.status(403).json({ error: 'El empleado no tiene permiso para esta operación.' });
+  };
+};
+
+const requireHubAccess = (permission: string, resolveHubId?: (req: any) => string | null) => {
+  return (req: any, res: any, next: any) => {
+    if (!req.user) return res.status(401).json({ error: 'Debes iniciar sesión.' });
+    const permissions = Array.isArray(req.user.permissions) ? req.user.permissions : [];
+    const isSuperAdmin = req.user.role === 'super_admin' || permissions.includes('*');
+    const hasPermission = req.user.role === 'hub_operator' || permissions.includes(permission);
+    if (!isSuperAdmin && !hasPermission) {
+      return res.status(403).json({ error: 'No tienes permisos para operar Hubs.' });
+    }
+    if (!isSuperAdmin) {
+      const hubId = resolveHubId ? resolveHubId(req) : null;
+      if (!req.user.assigned_hub_id) {
+        return res.status(403).json({ error: 'El usuario no tiene un Hub asignado.' });
+      }
+      if (hubId && req.user.assigned_hub_id !== hubId) {
+        return res.status(403).json({ error: 'El usuario no está asignado a este Hub.' });
+      }
+    }
+    next();
+  };
+};
+
+const requireDriverAccess = (req: any, res: any, next: any) => {
+  if (!req.user) return res.status(401).json({ error: 'Debes iniciar sesión.' });
+  const permissions = Array.isArray(req.user.permissions) ? req.user.permissions : [];
+  if (req.user.role === 'driver' || req.user.role === 'super_admin' || permissions.includes('*') || permissions.includes('driver.manage')) {
     return next();
   }
-  return res.status(403).json({ error: 'Acceso denegado. Se requieren permisos de Administrador.' });
+  return res.status(403).json({ error: 'Esta operación requiere un usuario Driver autorizado.' });
 };
 
 // Mount modular routes (Audit Logs, Cache Stats, Queue Monitoring)
@@ -5910,7 +6013,7 @@ app.get('/api/public/point-executive/:id', async (req, res) => {
 });
 
 // ========== POINT AFILIADO: PERFIL, PRODUCTOS, EMISIÓN Y TRACKING ==========
-app.get('/api/point/me', authMiddleware, async (req: any, res) => {
+app.get('/api/point/me', authMiddleware, requirePointAccess(), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'Este usuario no tiene un Point afiliado.' });
@@ -5959,7 +6062,7 @@ app.get('/api/point/me', authMiddleware, async (req: any, res) => {
   }
 });
 
-app.get('/api/point/products', authMiddleware, async (_req: any, res) => {
+app.get('/api/point/products', authMiddleware, requirePointAccess('pos.view'), async (_req: any, res) => {
   try {
     const products = await PointRepo.getProducts();
     res.json({ products });
@@ -5969,7 +6072,7 @@ app.get('/api/point/products', authMiddleware, async (_req: any, res) => {
   }
 });
 
-app.get('/api/point/operations', authMiddleware, async (req: any, res) => {
+app.get('/api/point/operations', authMiddleware, requirePointAccess('operations.view'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'Este usuario no tiene un Point afiliado.' });
@@ -6069,6 +6172,8 @@ app.post('/api/point/auth/employee-login', async (req, res) => {
       userId: user.id,
       role: 'point',
       isEmployee: true,
+      employeeId: emp.id,
+      pointId: point.id,
       employee: {
         id: emp.id,
         name: emp.name,
@@ -6120,7 +6225,7 @@ app.post('/api/point/auth/employee-login', async (req, res) => {
 });
 
 // Actualizar Marca y Configuración de Sucursal (Point Co-Branding: [Branch Name] by ship24go.com)
-app.post('/api/point/settings', authMiddleware, async (req: any, res) => {
+app.post('/api/point/settings', authMiddleware, requirePointAccess('point.settings', true), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6208,6 +6313,15 @@ app.post('/api/point/devices/link', async (req, res) => {
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         distanceKm = Math.round((R * c) * 100) / 100;
       }
+    }
+
+    const hasPointCoordinates = Number.isFinite(pointLat) && Number.isFinite(pointLon) && pointLat !== 0 && pointLon !== 0;
+    if (hasPointCoordinates && distanceKm === null) {
+      return res.status(400).json({ error: 'Debes autorizar la ubicación de esta terminal para vincularla al Point.' });
+    }
+    const maxDeviceDistanceKm = Math.max(0.05, Number(process.env.POINT_DEVICE_MAX_DISTANCE_KM || 0.5));
+    if (distanceKm !== null && distanceKm > maxDeviceDistanceKm) {
+      return res.status(403).json({ error: `La terminal está fuera del radio autorizado del Point (${maxDeviceDistanceKm} km).` });
     }
 
     const deviceId = `pdev_${generateId()}`;
@@ -6333,15 +6447,16 @@ app.post('/api/point/devices/unlink', async (req, res) => {
     }
 
     const dev = devRows[0];
-    if (pinOrPassword) {
-      const passMatches = dev.password_hash === hashPassword(pinOrPassword);
-      const [empPinRows]: any = await pool.query(
-        `SELECT * FROM point_employees WHERE point_id = ? AND role = 'manager' AND pin_code = ? AND status = 'active'`,
-        [dev.point_id, String(pinOrPassword).trim()]
-      );
-      if (!passMatches && (!empPinRows || empPinRows.length === 0)) {
-        return res.status(401).json({ error: 'PIN o Contraseña incorrecta para desvincular.' });
-      }
+    if (!pinOrPassword) {
+      return res.status(401).json({ error: 'Debes confirmar la desvinculación con el PIN o contraseña del propietario.' });
+    }
+    const passMatches = dev.password_hash === hashPassword(pinOrPassword);
+    const [empPinRows]: any = await pool.query(
+      `SELECT * FROM point_employees WHERE point_id = ? AND role = 'manager' AND pin_code = ? AND status = 'active'`,
+      [dev.point_id, String(pinOrPassword).trim()]
+    );
+    if (!passMatches && (!empPinRows || empPinRows.length === 0)) {
+      return res.status(401).json({ error: 'PIN o Contraseña incorrecta para desvincular.' });
     }
 
     await pool.query(`UPDATE point_devices SET status = 'revoked' WHERE id = ?`, [dev.id]);
@@ -6353,7 +6468,7 @@ app.post('/api/point/devices/unlink', async (req, res) => {
 });
 
 // Enviar Recibo de Mostrador por Correo Electrónico
-app.post('/api/point/shipments/:trackingCode/send-receipt', authMiddleware, async (req: any, res) => {
+app.post('/api/point/shipments/:trackingCode/send-receipt', authMiddleware, requirePointAccess('pos.receipt'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6449,7 +6564,7 @@ app.post('/api/point/shipments/:trackingCode/send-receipt', authMiddleware, asyn
   }
 });
 
-app.post('/api/point/operations', authMiddleware, async (req: any, res) => {
+app.post('/api/point/operations', authMiddleware, requirePointAccess('pos.create'), async (req: any, res) => {
   const validation = validatePointOperation(req.body || {});
   if (!validation.valid) return res.status(400).json({ error: validation.errors[0], errors: validation.errors });
 
@@ -6561,7 +6676,7 @@ app.post('/api/point/operations', authMiddleware, async (req: any, res) => {
 // ========== TERMINAL POS MOSTRADOR, VALIJAS/MANIFIESTOS Y FINANZAS ==========
 
 // 1. Tarifas Oficiales Propias Ship24Go para Points
-app.get('/api/point/tariffs', authMiddleware, async (req: any, res) => {
+app.get('/api/point/tariffs', authMiddleware, requirePointAccess('pos.view'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     const defaultOrigin = point?.country || 'US';
@@ -6577,7 +6692,7 @@ app.get('/api/point/tariffs', authMiddleware, async (req: any, res) => {
 });
 
 // 2. Valija / Manifiesto abierto actual (para documentos consolidados a RD)
-app.get(['/api/point/manifests/current-valija', '/api/point/manifests/current-saca'], authMiddleware, async (req: any, res) => {
+app.get(['/api/point/manifests/current-valija', '/api/point/manifests/current-saca'], authMiddleware, requirePointAccess('manifests.view'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6611,7 +6726,7 @@ app.get(['/api/point/manifests/current-valija', '/api/point/manifests/current-sa
 });
 
 // 3. Crear Envío desde el Terminal POS de Mostrador
-app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any, res) => {
+app.post('/api/point/terminal/create-shipment', authMiddleware, requirePointAccess('pos.create'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6620,6 +6735,40 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any,
     }
 
     const { tariffId, sender, recipient, package: pkg, paymentMethod, notes } = req.body || {};
+    const idempotencyKey = String(req.headers['idempotency-key'] || req.body?.idempotencyKey || '').trim().slice(0, 120) || null;
+    if (idempotencyKey) {
+      const [existingRows]: any = await pool.query(
+        `SELECT po.id AS operation_id, po.shipment_id, po.product_code, po.sale_amount,
+                po.commission_amount, po.currency, po.receipt_code, po.status,
+                s.tracking_code, s.manifest_id, s.point_payment_method
+         FROM point_operations po
+         INNER JOIN shipments s ON s.id = po.shipment_id
+         WHERE po.point_id = ? AND po.idempotency_key = ? LIMIT 1`,
+        [point.id, idempotencyKey]
+      );
+      if (existingRows?.[0]) {
+        const existing = existingRows[0];
+        return res.json({
+          success: true,
+          idempotent: true,
+          shipment: {
+            id: existing.shipment_id,
+            trackingCode: existing.tracking_code,
+            receiptCode: existing.receipt_code,
+            price: Number(existing.sale_amount || 0),
+            priceDop: Number(existing.sale_amount || 0),
+            commission: Number(existing.commission_amount || 0),
+            commissionDop: Number(existing.commission_amount || 0),
+            currency: existing.currency || 'USD',
+            paymentCurrency: existing.currency || 'USD',
+            paymentMethod: existing.point_payment_method || 'cash',
+            isConsolidatedInSaca: Boolean(existing.manifest_id),
+            manifestId: existing.manifest_id,
+            status: existing.status
+          }
+        });
+      }
+    }
     if (!tariffId) return res.status(400).json({ error: 'Debes seleccionar un producto/tarifa.' });
     if (!recipient?.name || !recipient?.phone || !recipient?.address || !recipient?.city) {
       return res.status(400).json({ error: 'Los datos del destinatario están incompletos.' });
@@ -6772,7 +6921,14 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any,
 
     // Registrar en point_operations para comisiones y liquidación
     const operationId = generateId('pop_');
-    const productId = ['document', 'legal_document'].includes(tariff.product_type) ? 'pp_document' : 'pp_us_pkg';
+    const [pointProductRows]: any = await pool.query(
+      `SELECT id FROM point_products WHERE code = ? AND is_active = 1 LIMIT 1`,
+      [tariff.product_type]
+    );
+    const productId = pointProductRows?.[0]?.id;
+    if (!productId) {
+      return res.status(409).json({ error: 'El producto de la tarifa aún no está habilitado para operaciones Point.' });
+    }
     await PointRepo.createOperation({
       id: operationId,
       point_id: point.id,
@@ -6783,7 +6939,8 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any,
       commission_amount: commission,
       currency: tariff.currency || 'USD',
       status: 'received',
-      receipt_code: trackingCode
+      receipt_code: trackingCode,
+      idempotency_key: idempotencyKey
     });
 
     // Registrar arqueo en caja (Efectivo, Tarjeta o Transferencia)
@@ -6840,7 +6997,7 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, async (req: any,
 });
 
 // 4. Cerrar Valija de Documentos y Generar Manifiesto / Master Tracking
-app.post(['/api/point/manifests/close-valija', '/api/point/manifests/close-saca'], authMiddleware, async (req: any, res) => {
+app.post(['/api/point/manifests/close-valija', '/api/point/manifests/close-saca'], authMiddleware, requirePointAccess('manifests.manage'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6857,7 +7014,7 @@ app.post(['/api/point/manifests/close-valija', '/api/point/manifests/close-saca'
 });
 
 // 4.1 Entrada en Almacén Hub con Tracking de 6 Dígitos y Ubicación
-app.post('/api/point/manifests/warehouse-inbound', authMiddleware, async (req: any, res) => {
+app.post('/api/point/manifests/warehouse-inbound', authMiddleware, requirePointAccess('manifests.manage'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6880,7 +7037,7 @@ app.post('/api/point/manifests/warehouse-inbound', authMiddleware, async (req: a
 });
 
 // 4.2 Cotizar Brokers de Envío para la Valija / Lote
-app.post('/api/point/manifests/quote-brokers', authMiddleware, async (req: any, res) => {
+app.post('/api/point/manifests/quote-brokers', authMiddleware, requirePointAccess('manifests.manage'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6915,7 +7072,7 @@ app.post('/api/point/manifests/quote-brokers', authMiddleware, async (req: any, 
 });
 
 // 4.3 Reabrir Saco para Modificar o Agregar más Documentos
-app.post('/api/point/manifests/reopen', authMiddleware, async (req: any, res) => {
+app.post('/api/point/manifests/reopen', authMiddleware, requirePointAccess('manifests.manage'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6932,7 +7089,7 @@ app.post('/api/point/manifests/reopen', authMiddleware, async (req: any, res) =>
 });
 
 // 4.4 Confirmar Broker y Despachar Valija
-app.post('/api/point/manifests/confirm-dispatch', authMiddleware, async (req: any, res) => {
+app.post('/api/point/manifests/confirm-dispatch', authMiddleware, requirePointAccess('manifests.manage'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6956,7 +7113,7 @@ app.post('/api/point/manifests/confirm-dispatch', authMiddleware, async (req: an
 });
 
 // 5. Listar Manifiestos y Valijas del Point
-app.get('/api/point/manifests', authMiddleware, async (req: any, res) => {
+app.get('/api/point/manifests', authMiddleware, requirePointAccess('manifests.view'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6988,7 +7145,7 @@ app.get('/api/point/manifests/:id', authMiddleware, async (req: any, res) => {
 });
 
 // 7. Resumen de Caja y Arqueo Diario del Point
-app.get('/api/point/finance/summary', authMiddleware, async (req: any, res) => {
+app.get('/api/point/finance/summary', authMiddleware, requirePointAccess('cash.view'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7011,7 +7168,7 @@ app.get('/api/point/finance/summary', authMiddleware, async (req: any, res) => {
 });
 
 // 7.1 Abrir Turno / Fondo de Caja Chica
-app.post('/api/point/cash/open-shift', authMiddleware, async (req: any, res) => {
+app.post('/api/point/cash/open-shift', authMiddleware, requirePointAccess('cash.view'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7063,7 +7220,7 @@ app.post('/api/point/cash/open-shift', authMiddleware, async (req: any, res) => 
 });
 
 // 7.2 Realizar Cierre de Caja / Arqueo de Turno
-app.post('/api/point/cash/close-shift', authMiddleware, async (req: any, res) => {
+app.post('/api/point/cash/close-shift', authMiddleware, requirePointAccess('cash.view'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7134,7 +7291,7 @@ app.post('/api/point/cash/close-shift', authMiddleware, async (req: any, res) =>
 });
 
 // 8. Cuentas Bancarias del Point para Retiro de Comisiones y Métodos del Sistema
-app.get('/api/point/bank-accounts', authMiddleware, async (req: any, res) => {
+app.get('/api/point/bank-accounts', authMiddleware, requirePointAccess('wallet.view', true), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7189,7 +7346,7 @@ app.get('/api/point/bank-accounts', authMiddleware, async (req: any, res) => {
 });
 
 // Guardar o actualizar cuenta bancaria del Point
-app.post('/api/point/bank-accounts', authMiddleware, async (req: any, res) => {
+app.post('/api/point/bank-accounts', authMiddleware, requirePointAccess('wallet.manage', true), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7246,7 +7403,7 @@ app.post('/api/point/bank-accounts', authMiddleware, async (req: any, res) => {
 });
 
 // Eliminar cuenta bancaria del Point
-app.delete('/api/point/bank-accounts/:id', authMiddleware, async (req: any, res) => {
+app.delete('/api/point/bank-accounts/:id', authMiddleware, requirePointAccess('wallet.manage', true), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7260,7 +7417,7 @@ app.delete('/api/point/bank-accounts/:id', authMiddleware, async (req: any, res)
 });
 
 // Solicitar retiro de comisiones a la cuenta bancaria
-app.post('/api/point/payout-request', authMiddleware, async (req: any, res) => {
+app.post('/api/point/payout-request', authMiddleware, requirePointAccess('wallet.payout', true), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7359,7 +7516,7 @@ app.post('/api/point/payout-request', authMiddleware, async (req: any, res) => {
 });
 
 // Listar solicitudes de retiro del Point
-app.get('/api/point/payout-requests', authMiddleware, async (req: any, res) => {
+app.get('/api/point/payout-requests', authMiddleware, requirePointAccess('wallet.view', true), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7381,7 +7538,7 @@ app.get('/api/point/payout-requests', authMiddleware, async (req: any, res) => {
 });
 
 // 9. Empleados y Control de Accesos del Point
-app.get('/api/point/employees', authMiddleware, async (req: any, res) => {
+app.get('/api/point/employees', authMiddleware, requirePointAccess('team.view', true), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7398,7 +7555,7 @@ app.get('/api/point/employees', authMiddleware, async (req: any, res) => {
   }
 });
 
-app.post('/api/point/employees', authMiddleware, async (req: any, res) => {
+app.post('/api/point/employees', authMiddleware, requirePointAccess('team.manage', true), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7435,7 +7592,7 @@ app.post('/api/point/employees', authMiddleware, async (req: any, res) => {
   }
 });
 
-app.post('/api/point/employees/:id/status', authMiddleware, async (req: any, res) => {
+app.post('/api/point/employees/:id/status', authMiddleware, requirePointAccess('team.manage', true), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7455,7 +7612,7 @@ app.post('/api/point/employees/:id/status', authMiddleware, async (req: any, res
   }
 });
 
-app.delete('/api/point/employees/:id', authMiddleware, async (req: any, res) => {
+app.delete('/api/point/employees/:id', authMiddleware, requirePointAccess('team.manage', true), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7582,7 +7739,7 @@ app.post('/api/admin/points/:id/executive', authMiddleware, requireAdminOrPermis
 });
 
 // ========== CHAT DE ASISTENCIA: POINT AFILIADO ==========
-app.get('/api/point/chat/messages', authMiddleware, async (req: any, res) => {
+app.get('/api/point/chat/messages', authMiddleware, requirePointAccess('chat.view'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'Este usuario no tiene un Point afiliado.' });
@@ -7595,7 +7752,7 @@ app.get('/api/point/chat/messages', authMiddleware, async (req: any, res) => {
   }
 });
 
-app.post('/api/point/chat/messages', authMiddleware, async (req: any, res) => {
+app.post('/api/point/chat/messages', authMiddleware, requirePointAccess('chat.send'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'Este usuario no tiene un Point afiliado.' });
@@ -7690,7 +7847,7 @@ app.post('/api/admin/points/:id/chat/messages', authMiddleware, requireAdminOrPe
 // ============================================================================
 // 1. HOJA DE RUTA / DESPACHO DEL BROKER (DISPATCH MANIFEST)
 // ============================================================================
-app.get('/api/point/manifests/:id/dispatch-sheet', authMiddleware, async (req: any, res) => {
+app.get('/api/point/manifests/:id/dispatch-sheet', authMiddleware, requirePointAccess('manifests.view'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     const isAdmin = ['super_admin', 'admin', 'operations', 'hub_operator'].includes(req.user.role);
@@ -7734,9 +7891,12 @@ app.get('/api/point/manifests/:id/dispatch-sheet', authMiddleware, async (req: a
 // 2. MÓDULO DE HUBS Y CENTROS LOGÍSTICOS (/api/hubs)
 // ============================================================================
 // Listado de Hubs con métricas operacionales
-app.get('/api/hubs/list', authMiddleware, async (req: any, res) => {
+app.get('/api/hubs/list', authMiddleware, requireHubAccess('hubs.view'), async (req: any, res) => {
   try {
-    const [hubs]: any = await pool.query('SELECT id, code, name, hub_type, country, city, state_province, postal_code, address, latitude, longitude, timezone, manager_name, phone, email, operating_hours, capacity_daily, is_active, created_at FROM hubs WHERE is_active = 1 ORDER BY country, city');
+    const isGlobalHubUser = req.user.role === 'super_admin' || req.user.permissions?.includes('*');
+    const hubFilter = isGlobalHubUser ? '' : ' AND id = ?';
+    const hubParams = isGlobalHubUser ? [] : [req.user.assigned_hub_id];
+    const [hubs]: any = await pool.query(`SELECT id, code, name, hub_type, country, city, state_province, postal_code, address, latitude, longitude, timezone, manager_name, phone, email, operating_hours, capacity_daily, is_active, created_at FROM hubs WHERE is_active = 1${hubFilter} ORDER BY country, city`, hubParams);
     
     // Obtener contadores por cada hub
     const enrichedHubs = await Promise.all(hubs.map(async (h: any) => {
@@ -7754,7 +7914,7 @@ app.get('/api/hubs/list', authMiddleware, async (req: any, res) => {
       );
       const [driverRows]: any = await pool.query(
         `SELECT COUNT(*) AS active_drivers FROM users 
-         WHERE role = 'driver' AND (assigned_hub_id = ? OR assigned_hub_id IS NULL)`,
+         WHERE role = 'driver' AND assigned_hub_id = ?`,
         [h.id]
       );
 
@@ -7775,7 +7935,7 @@ app.get('/api/hubs/list', authMiddleware, async (req: any, res) => {
 });
 
 // Inventario, valijas inbound y choferes de un Hub específico
-app.get('/api/hubs/:hubId/inventory', authMiddleware, async (req: any, res) => {
+app.get('/api/hubs/:hubId/inventory', authMiddleware, requireHubAccess('hubs.view', req => req.params.hubId), async (req: any, res) => {
   try {
     const { hubId } = req.params;
     const [hRows]: any = await pool.query('SELECT * FROM hubs WHERE id = ? LIMIT 1', [hubId]);
@@ -7848,7 +8008,7 @@ app.get('/api/hubs/:hubId/inventory', authMiddleware, async (req: any, res) => {
 });
 
 // Actualización de Datos de Oficina & Coordenadas GPS del Hub
-app.put('/api/hubs/:hubId', authMiddleware, async (req: any, res) => {
+app.put('/api/hubs/:hubId', authMiddleware, requireHubAccess('hubs.manage', req => req.params.hubId), async (req: any, res) => {
   try {
     const { hubId } = req.params;
     const {
@@ -7926,7 +8086,7 @@ app.put('/api/hubs/:hubId', authMiddleware, async (req: any, res) => {
 });
 
 // Crear Nuevo Hub Logístico
-app.post('/api/hubs', authMiddleware, async (req: any, res) => {
+app.post('/api/hubs', authMiddleware, requireHubAccess('hubs.manage'), async (req: any, res) => {
   try {
     const {
       name,
@@ -7994,7 +8154,7 @@ app.post('/api/hubs', authMiddleware, async (req: any, res) => {
 });
 
 // Recepción e Inbound de Valija / Master Tracking en Hub
-app.post('/api/hubs/manifests/inbound', authMiddleware, async (req: any, res) => {
+app.post('/api/hubs/manifests/inbound', authMiddleware, requireHubAccess('hubs.inbound', req => req.body?.hubId || null), async (req: any, res) => {
   try {
     const { hubId, masterTrackingOrCode } = req.body || {};
     if (!hubId || !masterTrackingOrCode) {
@@ -8010,6 +8170,12 @@ app.post('/api/hubs/manifests/inbound', authMiddleware, async (req: any, res) =>
     const manifest = mRows[0];
     if (!manifest) {
       return res.status(404).json({ error: `No se encontró ninguna valija o manifiesto con el código "${code}".` });
+    }
+    if (manifest.destination_hub_id && manifest.destination_hub_id !== hubId) {
+      return res.status(409).json({ error: 'El manifiesto no está destinado a este Hub.' });
+    }
+    if (!['closed', 'in_transit_hub', 'dispatched_intl'].includes(manifest.status)) {
+      return res.status(409).json({ error: 'El manifiesto no está en tránsito y no puede registrarse como inbound.' });
     }
 
     // Actualizar manifiesto
@@ -8058,7 +8224,7 @@ app.post('/api/hubs/manifests/inbound', authMiddleware, async (req: any, res) =>
 });
 
 // Desconsolidación Asistida de Valija (Apertura y Verificación de Paquetes)
-app.post('/api/hubs/manifests/deconsolidate', authMiddleware, async (req: any, res) => {
+app.post('/api/hubs/manifests/deconsolidate', authMiddleware, requireHubAccess('hubs.deconsolidate'), async (req: any, res) => {
   try {
     const { manifestId, scannedTrackings } = req.body || {};
     if (!manifestId) return res.status(400).json({ error: 'ID de manifiesto requerido.' });
@@ -8072,7 +8238,32 @@ app.post('/api/hubs/manifests/deconsolidate', authMiddleware, async (req: any, r
       [manifestId]
     );
 
-    const scannedSet = new Set(Array.isArray(scannedTrackings) ? scannedTrackings.map(c => String(c).trim().toUpperCase()) : []);
+    if (!['received_hub', 'arrived_dest'].includes(manifest.status)) {
+      return res.status(409).json({ error: 'El manifiesto no está recibido en el Hub y no puede desconsolidarse.' });
+    }
+
+    const scannedSet = new Set<string>(
+      Array.isArray(scannedTrackings)
+        ? scannedTrackings.map((c: unknown) => String(c).trim().toUpperCase()).filter(Boolean)
+        : []
+    );
+    const expectedSet = new Set<string>(manifestShipments.map((s: any) => String(s.tracking_code).trim().toUpperCase()));
+    const unknownTrackings = [...scannedSet].filter(code => !expectedSet.has(code));
+    const missingTrackings = [...expectedSet].filter(code => !scannedSet.has(code));
+
+    // Nunca cerrar una valija con conteo parcial o con códigos que no le
+    // pertenecen. La diferencia queda para revisión del Hub.
+    if (unknownTrackings.length || missingTrackings.length || scannedSet.size !== expectedSet.size) {
+      return res.status(409).json({
+        success: false,
+        error: 'El conteo no coincide con el manifiesto. La valija queda en revisión.',
+        matchedCount: expectedSet.size - missingTrackings.length,
+        totalExpected: expectedSet.size,
+        discrepancies: missingTrackings,
+        unknownTrackings
+      });
+    }
+
     let matchedCount = 0;
     const discrepancies: string[] = [];
 
@@ -8101,7 +8292,8 @@ app.post('/api/hubs/manifests/deconsolidate', authMiddleware, async (req: any, r
       }
     }
 
-    // Marcar valija como completada / procesada
+    // Marcar valija como completada / procesada únicamente después de
+    // verificar todas las piezas esperadas.
     await pool.query(
       `UPDATE point_manifests SET status = 'completed' WHERE id = ?`,
       [manifestId]
@@ -8121,36 +8313,71 @@ app.post('/api/hubs/manifests/deconsolidate', authMiddleware, async (req: any, r
 });
 
 // Asignar Paquetes a Ruta de Chofer (Crear Hoja de Ruta de Última Milla)
-app.post('/api/hubs/routes/create', authMiddleware, async (req: any, res) => {
+app.post('/api/hubs/routes/create', authMiddleware, requireHubAccess('hubs.assign_route', req => req.body?.hubId || null), async (req: any, res) => {
   try {
     const { hubId, driverId, vehiclePlate, trackingCodes, notes } = req.body || {};
     if (!hubId || !driverId || !Array.isArray(trackingCodes) || !trackingCodes.length) {
       return res.status(400).json({ error: 'Hub, chofer y lista de tracking codes son obligatorios.' });
     }
 
-    const [dRows]: any = await pool.query('SELECT * FROM users WHERE id = ? AND role = "driver" LIMIT 1', [driverId]);
+    const normalizedTrackingCodes = [...new Set(
+      trackingCodes.map((tracking: any) => String(tracking || '').trim().toUpperCase()).filter(Boolean)
+    )];
+    if (normalizedTrackingCodes.length !== trackingCodes.length) {
+      return res.status(400).json({ error: 'La lista de paquetes contiene códigos vacíos o repetidos.' });
+    }
+
+    const [dRows]: any = await pool.query(
+      `SELECT * FROM users
+       WHERE id = ? AND role = 'driver' AND status = 'active' AND assigned_hub_id = ?
+       LIMIT 1`,
+      [driverId, hubId]
+    );
     if (!dRows[0]) return res.status(404).json({ error: 'Chofer no encontrado.' });
     const driver = dRows[0];
+
+    const trackingPlaceholders = normalizedTrackingCodes.map(() => '?').join(',');
+    const [validShipments]: any = await pool.query(
+      `SELECT s.id, s.tracking_code, s.status
+       FROM shipments s
+       LEFT JOIN point_manifests m ON m.id = s.manifest_id
+       WHERE s.tracking_code IN (${trackingPlaceholders})
+         AND (s.hub_destination_id = ? OR m.destination_hub_id = ?)
+         AND s.status = 'at_hub'`,
+      [...normalizedTrackingCodes, hubId, hubId]
+    );
+    const validCodes = new Set(validShipments.map((shipment: any) => String(shipment.tracking_code).trim()));
+    const invalidCodes = normalizedTrackingCodes.filter(code => !validCodes.has(code));
+    if (invalidCodes.length) {
+      return res.status(409).json({
+        error: 'Una o más piezas no están disponibles en este Hub para reparto.',
+        invalidTrackings: invalidCodes
+      });
+    }
 
     const routeId = generateId('rut_');
     const routeCode = 'RUT-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.floor(100 + Math.random() * 900);
 
-    await pool.query(
+    const routeConn = await pool.getConnection();
+    try {
+      await routeConn.beginTransaction();
+      await routeConn.query(
       `INSERT INTO driver_routes (id, route_code, driver_id, hub_id, vehicle_plate, status, total_packages, completed_packages, started_at, notes)
        VALUES (?, ?, ?, ?, ?, 'assigned', ?, 0, NOW(), ?)`,
-      [routeId, routeCode, driver.id, hubId, vehiclePlate || 'Vehículo de Flota', trackingCodes.length, notes || null]
-    );
+      [routeId, routeCode, driver.id, hubId, vehiclePlate || 'Vehículo de Flota', normalizedTrackingCodes.length, notes || null]
+      );
 
-    // Crear paradas para cada tracking
-    let stopNumber = 1;
-    for (const tracking of trackingCodes) {
+      // Crear paradas para cada tracking dentro de la misma transacción que
+      // la ruta, para no dejar rutas huérfanas si una parada falla.
+      let stopNumber = 1;
+      for (const tracking of normalizedTrackingCodes) {
       const code = String(tracking).trim();
       const [sRows]: any = await pool.query('SELECT * FROM shipments WHERE tracking_code = ? LIMIT 1', [code]);
       const shp = sRows[0];
       if (shp) {
         const rec = typeof shp.recipient_json === 'string' ? JSON.parse(shp.recipient_json) : (shp.recipient_json || {});
         const stopId = generateId('stp_');
-        await pool.query(
+        await routeConn.query(
           `INSERT INTO delivery_stops (
             id, route_id, shipment_id, tracking_code, stop_number,
             recipient_name, recipient_phone, recipient_address, recipient_city, status
@@ -8169,7 +8396,7 @@ app.post('/api/hubs/routes/create', authMiddleware, async (req: any, res) => {
         );
 
         // Actualizar envío a en ruta
-        await pool.query(
+        await routeConn.query(
           `UPDATE shipments SET status = 'in_route', status_label = 'En Ruta de Entrega (Chofer Asignado)' WHERE id = ?`,
           [shp.id]
         );
@@ -8187,11 +8414,18 @@ app.post('/api/hubs/routes/create', authMiddleware, async (req: any, res) => {
           });
         } catch {}
       }
+      }
+      await routeConn.commit();
+    } catch (error) {
+      await routeConn.rollback().catch(() => {});
+      throw error;
+    } finally {
+      routeConn.release();
     }
 
     res.status(201).json({
       success: true,
-      message: `Ruta ${routeCode} creada con éxito con ${trackingCodes.length} paradas asignadas a ${driver.name}.`,
+      message: `Ruta ${routeCode} creada con éxito con ${normalizedTrackingCodes.length} paradas asignadas a ${driver.name}.`,
       routeId,
       routeCode
     });
@@ -8205,7 +8439,7 @@ app.post('/api/hubs/routes/create', authMiddleware, async (req: any, res) => {
 // 3. MÓDULO DE CHOFERES / ÚLTIMA MILLA (/api/driver)
 // ============================================================================
 // Ruta activa del chofer en sesión
-app.get('/api/driver/active-route', authMiddleware, async (req: any, res) => {
+app.get('/api/driver/active-route', authMiddleware, requireDriverAccess, async (req: any, res) => {
   try {
     const driverId = req.user.id;
     
@@ -8268,22 +8502,27 @@ app.get('/api/driver/active-route', authMiddleware, async (req: any, res) => {
 });
 
 // Completar Entrega con Prueba de Entrega (POD: Firma táctil, Foto y Receptor)
-app.post('/api/driver/stop/complete', authMiddleware, async (req: any, res) => {
+app.post('/api/driver/stop/complete', authMiddleware, requireDriverAccess, async (req: any, res) => {
   try {
     const { stopId, signerName, signerId, signatureImage, photoUrl, notes, lat, lng } = req.body || {};
     if (!stopId || !signerName) {
       return res.status(400).json({ error: 'ID de parada y nombre de quien recibe son obligatorios.' });
     }
 
+    const driverScope = req.user.role === 'driver' ? ' AND dr.driver_id = ?' : '';
+    const stopParams = req.user.role === 'driver' ? [stopId, req.user.id] : [stopId];
     const [stRows]: any = await pool.query(
       `SELECT ds.*, dr.driver_id, dr.id AS route_id
        FROM delivery_stops ds
        INNER JOIN driver_routes dr ON dr.id = ds.route_id
-       WHERE ds.id = ? LIMIT 1`,
-      [stopId]
+       WHERE ds.id = ?${driverScope} LIMIT 1`,
+      stopParams
     );
     const stop = stRows[0];
     if (!stop) return res.status(404).json({ error: 'Parada no encontrada.' });
+    if (!['pending', 'in_transit'].includes(stop.status)) {
+      return res.status(409).json({ error: 'Esta parada ya fue procesada y no puede marcarse nuevamente.' });
+    }
 
     // Actualizar parada con POD
     await pool.query(
@@ -8297,7 +8536,7 @@ app.post('/api/driver/stop/complete', authMiddleware, async (req: any, res) => {
            delivered_at = NOW(),
            latitude = ?,
            longitude = ?
-       WHERE id = ?`,
+       WHERE id = ? AND status IN ('pending', 'in_transit')`,
       [
         String(signerName).trim(),
         signerId ? String(signerId).trim() : null,
@@ -8315,6 +8554,11 @@ app.post('/api/driver/stop/complete', authMiddleware, async (req: any, res) => {
       `UPDATE shipments 
        SET status = 'delivered', status_label = 'Entregado a Destinatario'
        WHERE id = ?`,
+      [stop.shipment_id]
+    );
+    await pool.query(
+      `UPDATE point_operations SET status = 'delivered', updated_at = NOW()
+       WHERE shipment_id = ? AND status NOT IN ('cancelled', 'delivered')`,
       [stop.shipment_id]
     );
 
@@ -8367,20 +8611,38 @@ app.post('/api/driver/stop/complete', authMiddleware, async (req: any, res) => {
 });
 
 // Registrar Incidencia / Intento Fallido de Parada
-app.post('/api/driver/stop/fail', authMiddleware, async (req: any, res) => {
+app.post('/api/driver/stop/fail', authMiddleware, requireDriverAccess, async (req: any, res) => {
   try {
     const { stopId, reason, notes } = req.body || {};
     if (!stopId || !reason) {
       return res.status(400).json({ error: 'ID de parada y motivo son obligatorios.' });
     }
 
-    const [stRows]: any = await pool.query('SELECT * FROM delivery_stops WHERE id = ? LIMIT 1', [stopId]);
+    const driverScope = req.user.role === 'driver' ? ' AND dr.driver_id = ?' : '';
+    const stopParams = req.user.role === 'driver' ? [stopId, req.user.id] : [stopId];
+    const [stRows]: any = await pool.query(
+      `SELECT ds.*, dr.driver_id, dr.id AS route_id
+       FROM delivery_stops ds
+       INNER JOIN driver_routes dr ON dr.id = ds.route_id
+       WHERE ds.id = ?${driverScope} LIMIT 1`,
+      stopParams
+    );
     const stop = stRows[0];
     if (!stop) return res.status(404).json({ error: 'Parada no encontrada.' });
+    if (!['pending', 'in_transit'].includes(stop.status)) {
+      return res.status(409).json({ error: 'Esta parada ya fue procesada y no puede modificarse nuevamente.' });
+    }
 
     await pool.query(
-      `UPDATE delivery_stops SET status = 'failed', failure_reason = ?, pod_notes = ? WHERE id = ?`,
+      `UPDATE delivery_stops SET status = 'failed', failure_reason = ?, pod_notes = ?
+       WHERE id = ? AND status IN ('pending', 'in_transit')`,
       [String(reason).trim(), notes ? String(notes).trim() : null, stopId]
+    );
+
+    await pool.query(
+      `UPDATE point_operations SET status = 'in_route', updated_at = NOW()
+       WHERE shipment_id = ? AND status NOT IN ('cancelled', 'delivered')`,
+      [stop.shipment_id]
     );
 
     try {
@@ -12392,7 +12654,7 @@ app.get('/api/tracking/:code', async (req, res) => {
     const requestedLang = normalizeMailLanguage(req.query.lang || detectLanguageFromRequest(req));
     
     // Mapear eventos a formato esperado por UI
-    let normalizedEvents = events.map(e => ({
+    let normalizedEvents: any[] = events.map(e => ({
       id: e.id,
       status: e.status_label || 'Creado',
       description: e.description || e.status_label || 'Actualizado',
@@ -12831,8 +13093,8 @@ app.get('/api/admin/team', authMiddleware, requireAdminOrPermission('team.view')
 app.post('/api/admin/team', authMiddleware, requireAdminOrPermission('team.manage'), async (req: any, res) => {
   try {
     const { email, name, password, role, role_id, phone, custom_permissions, status, avatar_url } = req.body;
-    if (!email || !name) {
-      return res.status(400).json({ error: 'Nombre y correo electrónico son requeridos.' });
+    if (!email || !name || !password || String(password).length < 12) {
+      return res.status(400).json({ error: 'Nombre, correo electrónico y una contraseña de al menos 12 caracteres son requeridos.' });
     }
     const existing = await UserRepo.getByEmail(String(email).toLowerCase().trim());
     if (existing) {
@@ -12842,7 +13104,7 @@ app.post('/api/admin/team', authMiddleware, requireAdminOrPermission('team.manag
     const member = await TeamRepo.createMember({
       email: String(email).toLowerCase().trim(),
       name: String(name).trim(),
-      password: password || 'Ship24go2026!',
+      password: String(password),
       role: role || 'support',
       role_id: role_id || null,
       phone: phone || '',
