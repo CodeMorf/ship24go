@@ -11,7 +11,7 @@ echo "=========================================================="
 # 1. Pull latest commits from GitHub main branch
 echo "📥 1. Pulling latest code from origin/main..."
 git fetch origin main
-git merge origin/main --no-edit
+git merge --ff-only FETCH_HEAD
 
 VERSION=$(node -p "require('./package.json').version" 2>/dev/null || cat VERSION 2>/dev/null || echo "unknown")
 GIT_HASH=$(git rev-parse --short HEAD)
