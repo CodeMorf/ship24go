@@ -5660,6 +5660,9 @@ const requirePointAccess = (permission?: string, ownerOnly = false) => {
       'pos.receipt': ['pos.create'],
       'operations.view': ['pos.create'],
       'manifests.view': ['manifests.manage'],
+      // Compatibilidad con empleados creados antes de separar apertura y cierre.
+      'cash.open': ['cash.view'],
+      'cash.close': ['cash.view'],
       'chat.view': ['chat.send']
     };
     const acceptedPermissions = [permission || '', ...(aliases[permission || ''] || [])];
@@ -6366,6 +6369,46 @@ app.post('/api/point/devices/link', async (req, res) => {
   } catch (err: any) {
     console.error('[Device Link Error]:', err);
     res.status(500).json({ error: 'Error al vincular el dispositivo.' });
+  }
+});
+
+// Listado administrativo de terminales vinculadas. Nunca devuelve el token.
+app.get('/api/point/devices', authMiddleware, requirePointAccess('point.settings', true), async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const [rows]: any = await pool.query(
+      `SELECT id, device_name, owner_email, latitude, longitude, distance_km,
+              browser_info, status, last_used_at, created_at
+       FROM point_devices
+       WHERE point_id = ?
+       ORDER BY (status = 'active') DESC, last_used_at DESC, created_at DESC`,
+      [point.id]
+    );
+    res.json({ success: true, devices: rows || [] });
+  } catch (error: any) {
+    console.error('[Point Devices List Error]:', error);
+    res.status(500).json({ error: 'No se pudieron cargar las terminales vinculadas.' });
+  }
+});
+
+// Revocación administrativa desde el panel del dueño.
+app.post('/api/point/devices/:id/revoke', authMiddleware, requirePointAccess('point.settings', true), async (req: any, res) => {
+  try {
+    const point = await PointRepo.getByUserId(req.user.id);
+    if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
+
+    const [result]: any = await pool.query(
+      `UPDATE point_devices SET status = 'revoked'
+       WHERE id = ? AND point_id = ? AND status = 'active'`,
+      [req.params.id, point.id]
+    );
+    if (!result.affectedRows) return res.status(404).json({ error: 'La terminal no existe o ya está revocada.' });
+    res.json({ success: true, message: 'Terminal revocada correctamente.' });
+  } catch (error: any) {
+    console.error('[Point Device Revoke Error]:', error);
+    res.status(500).json({ error: 'No se pudo revocar la terminal.' });
   }
 });
 
@@ -7174,7 +7217,7 @@ app.get('/api/point/finance/summary', authMiddleware, requirePointAccess('cash.v
 });
 
 // 7.1 Abrir Turno / Fondo de Caja Chica
-app.post('/api/point/cash/open-shift', authMiddleware, requirePointAccess('cash.view'), async (req: any, res) => {
+app.post('/api/point/cash/open-shift', authMiddleware, requirePointAccess('cash.open'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7184,7 +7227,11 @@ app.post('/api/point/cash/open-shift', authMiddleware, requirePointAccess('cash.
       return res.status(400).json({ error: 'Ya existe un turno de caja abierto. Debes realizar el cierre del turno anterior antes de iniciar uno nuevo.' });
     }
 
-    const { employeeId, pinCode, openingAmount, notes } = req.body || {};
+    const { employeeId: requestedEmployeeId, pinCode, openingAmount, notes } = req.body || {};
+    if (req.user.isPointEmployee && requestedEmployeeId && requestedEmployeeId !== req.user.employeeId) {
+      return res.status(403).json({ error: 'Un empleado solo puede abrir su propio turno de caja.' });
+    }
+    const employeeId = req.user.isPointEmployee ? req.user.employeeId : requestedEmployeeId;
     const amount = Number(openingAmount);
     if (isNaN(amount) || amount < 0) {
       return res.status(400).json({ error: 'El monto inicial de caja chica debe ser válido.' });
@@ -7226,7 +7273,7 @@ app.post('/api/point/cash/open-shift', authMiddleware, requirePointAccess('cash.
 });
 
 // 7.2 Realizar Cierre de Caja / Arqueo de Turno
-app.post('/api/point/cash/close-shift', authMiddleware, requirePointAccess('cash.view'), async (req: any, res) => {
+app.post('/api/point/cash/close-shift', authMiddleware, requirePointAccess('cash.close'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7235,8 +7282,15 @@ app.post('/api/point/cash/close-shift', authMiddleware, requirePointAccess('cash
     if (!activeShift) {
       return res.status(400).json({ error: 'No hay ningún turno de caja abierto actualmente.' });
     }
+    if (req.user.isPointEmployee && activeShift.employee_id && activeShift.employee_id !== req.user.employeeId) {
+      return res.status(403).json({ error: 'Este turno pertenece a otro empleado y debe cerrarlo el responsable o el dueño.' });
+    }
 
-    const { employeeId, pinCode, countedCash, closingNotes } = req.body || {};
+    const { employeeId: requestedEmployeeId, pinCode, countedCash, closingNotes } = req.body || {};
+    if (req.user.isPointEmployee && requestedEmployeeId && requestedEmployeeId !== req.user.employeeId) {
+      return res.status(403).json({ error: 'Un empleado solo puede cerrar su propio turno de caja.' });
+    }
+    const employeeId = req.user.isPointEmployee ? req.user.employeeId : requestedEmployeeId;
     const counted = Number(countedCash);
     if (isNaN(counted) || counted < 0) {
       return res.status(400).json({ error: 'Debes ingresar el monto contado físicamente en gaveta.' });

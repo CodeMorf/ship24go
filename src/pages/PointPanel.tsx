@@ -23,6 +23,7 @@ import {
   Info,
   Key,
   Landmark,
+  Laptop,
   Layers,
   Lock,
   LogOut,
@@ -350,8 +351,8 @@ export default function PointPanel() {
 
   // Empleados states
   const [employees, setEmployees] = useState<any[]>([]);
+  const [devices, setDevices] = useState<any[]>([]);
   const [showModalPin, setShowModalPin] = useState(false);
-  const [revealedPins, setRevealedPins] = useState<Record<string, boolean>>({});
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [employeeSaving, setEmployeeSaving] = useState(false);
   const [employeeForm, setEmployeeForm] = useState({
@@ -362,7 +363,7 @@ export default function PointPanel() {
     role: 'cashier',
     status: 'active',
     pinCode: '',
-    permissions: ['pos.create', 'cash.view']
+    permissions: ['pos.create', 'cash.view', 'cash.open', 'cash.close']
   });
 
   // Hoja de Ruta del Broker
@@ -598,7 +599,8 @@ export default function PointPanel() {
         sacaRes,
         manifestsRes,
         financeRes,
-        empRes
+        empRes,
+        devicesRes
       ] = await Promise.all([
         api.getPointMe(),
         api.getPointOperations(),
@@ -607,7 +609,10 @@ export default function PointPanel() {
         (api as any).getPointCurrentSaca().catch(() => ({ manifest: null, shipments: [] })),
         (api as any).getPointManifests().catch(() => ({ manifests: [] })),
         (api as any).getPointFinanceSummary().catch(() => ({ summary: null, movements: [] })),
-        (api as any).getPointEmployees().catch(() => ({ employees: [] }))
+        (api as any).getPointEmployees().catch(() => ({ employees: [] })),
+        !currentEmployee
+          ? (api as any).getPointDevices().catch(() => ({ devices: [] }))
+          : Promise.resolve({ devices: [] })
       ]);
 
       setPoint(pointRes.point);
@@ -640,6 +645,7 @@ export default function PointPanel() {
       const shifts = financeRes.shifts || [];
       setShiftsHistory(shifts);
       setEmployees(empRes.employees || []);
+      setDevices(devicesRes.devices || []);
 
       if (pointRes.point) {
         setBankForm(prev => ({
@@ -1041,7 +1047,7 @@ export default function PointPanel() {
         role: 'cashier',
         status: 'active',
         pinCode: '',
-        permissions: ['pos.create', 'cash.view']
+        permissions: ['pos.create', 'cash.view', 'cash.open', 'cash.close']
       });
       await loadData();
     } catch (err: any) {
@@ -1070,6 +1076,17 @@ export default function PointPanel() {
       await loadData();
     } catch (err: any) {
       alert(err.message || 'No se pudo eliminar el empleado.');
+    }
+  };
+
+  const handleRevokeDevice = async (device: any) => {
+    if (!confirm(`¿Revocar la terminal "${device.device_name}"? Ese equipo deberá vincularse nuevamente.`)) return;
+    try {
+      await (api as any).revokePointDevice(device.id);
+      setNotice(`Terminal ${device.device_name} revocada.`);
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || 'No se pudo revocar la terminal.');
     }
   };
 
@@ -1187,20 +1204,33 @@ export default function PointPanel() {
 
   const activeBankAccount = bankAccounts.find(a => a.is_default) || bankAccounts[0];
 
-  const isCashierMode = viewMode === 'cashier';
+  const effectiveViewMode: 'cashier' | 'owner' = currentEmployee ? 'cashier' : viewMode;
+  const isCashierMode = effectiveViewMode === 'cashier';
 
   const ALL_SIDEBAR_ITEMS = [
-    { id: 'pos', name: 'Mostrador POS', icon: PackagePlus, badge: viewMode === 'owner' ? '15%' : undefined },
+    { id: 'pos', name: 'Mostrador POS', icon: PackagePlus, badge: effectiveViewMode === 'owner' ? '15%' : undefined },
     { id: 'shipments', name: 'Envíos & Tracking', icon: Package, count: operations.length },
     { id: 'manifests', name: 'Lotes & Valijas', icon: Layers, badge: currentSaca ? `${currentSaca.current_items_count || 0}/10` : 'Valijas' },
     { id: 'cash', name: 'Caja & Arqueo', icon: Coins, count: cashSummary?.movementsCountToday || cashSummary?.movements_count_today },
-    { id: 'wallet', name: 'Billetera & Bancos', icon: Landmark, count: viewMode === 'owner' ? `$${Number(finance.availableBalance || 0).toFixed(0)}` : undefined, ownerOnly: true },
+    { id: 'wallet', name: 'Billetera & Bancos', icon: Landmark, count: effectiveViewMode === 'owner' ? `$${Number(finance.availableBalance || 0).toFixed(0)}` : undefined, ownerOnly: true },
     { id: 'team', name: 'Equipo & Empleados', icon: Users, count: employees.length, ownerOnly: true },
+    { id: 'devices', name: 'Terminales vinculadas', icon: Laptop, count: devices.filter(d => d.status === 'active').length, ownerOnly: true },
     { id: 'profile', name: 'Local & Horario', icon: Store }
   ];
 
-  // El Dueño siempre tiene acceso completo a todas las secciones
-  const SIDEBAR_ITEMS = ALL_SIDEBAR_ITEMS.filter(item => viewMode === 'owner' || !item.ownerOnly);
+  const employeePermissions = new Set<string>(Array.isArray(currentEmployee?.permissions) ? currentEmployee.permissions.map(String) : []);
+  const employeeCanUse = (tabId: string) => {
+    if (!currentEmployee) return true;
+    if (tabId === 'pos' || tabId === 'shipments') return employeePermissions.has('pos.create') || employeePermissions.has('operations.view') || employeePermissions.has('*');
+    if (tabId === 'manifests') return employeePermissions.has('manifests.manage') || employeePermissions.has('manifests.view') || employeePermissions.has('*');
+    if (tabId === 'cash') return ['cash.view', 'cash.open', 'cash.close', '*'].some(permission => employeePermissions.has(permission));
+    return tabId === 'profile';
+  };
+
+  // El dueño ve administración; el empleado solo ve las áreas para las que tiene permiso.
+  const SIDEBAR_ITEMS = currentEmployee
+    ? ALL_SIDEBAR_ITEMS.filter(item => !item.ownerOnly && employeeCanUse(item.id))
+    : ALL_SIDEBAR_ITEMS.filter(item => effectiveViewMode === 'owner' || !item.ownerOnly);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col md:flex-row font-sans transition-colors">
@@ -1234,8 +1264,10 @@ export default function PointPanel() {
           </div>
           <p className="text-xs font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1 truncate">
             <MapPin className="w-3.5 h-3.5 text-blue-600 dark:text-cyan-400 shrink-0" />
-            {point?.city}, {point?.country}
+          {point?.city}, {point?.country}
           </p>
+          {!currentEmployee && (
+          <>
           <div className="mt-2 pt-2 border-t border-blue-100/60 dark:border-slate-700/60 flex items-center justify-between text-[11px]">
             <span className="text-slate-500 dark:text-slate-400">Saldo listo:</span>
             <div className="text-right">
@@ -1280,6 +1312,8 @@ export default function PointPanel() {
               </button>
             </div>
           </div>
+          </>
+          )}
         </div>
 
         {/* Menú de Navegación */}
@@ -1287,15 +1321,18 @@ export default function PointPanel() {
           {SIDEBAR_ITEMS.map(item => {
             const active = currentTab === item.id;
             return (
-              <button
-                key={item.id}
-                onClick={() => setTab(item.id)}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  active
-                    ? 'bg-blue-600 text-white shadow-xs font-black'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
+              <React.Fragment key={item.id}>
+                {item.id === 'wallet' && (
+                  <p className="px-3.5 pt-4 pb-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Administración</p>
+                )}
+                <button
+                  onClick={() => setTab(item.id)}
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    active
+                      ? 'bg-blue-600 text-white shadow-xs font-black'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
                 <div className="flex items-center gap-2.5">
                   <item.icon className="w-4 h-4 shrink-0" />
                   <span>{item.name}</span>
@@ -1314,7 +1351,8 @@ export default function PointPanel() {
                     {item.count}
                   </span>
                 )}
-              </button>
+                </button>
+              </React.Fragment>
             );
           })}
         </nav>
@@ -1474,7 +1512,7 @@ export default function PointPanel() {
               <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                    {viewMode === 'owner' ? (
+                    {effectiveViewMode === 'owner' ? (
                       <span className="bg-emerald-500 text-slate-950 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full flex items-center gap-1">
                         👑 Dueño de Sucursal ({point?.contact_name || point?.business_name || 'Administrador'})
                       </span>
@@ -1506,7 +1544,7 @@ export default function PointPanel() {
                 </div>
 
                 <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-4 border border-white/10 shrink-0 text-right sm:text-left">
-                  {viewMode === 'owner' ? (
+                  {effectiveViewMode === 'owner' ? (
                     <>
                       <p className="text-[10px] font-black uppercase text-blue-200">Saldo Disponible (Dueño)</p>
                       <p className="text-2xl font-black text-emerald-400">
@@ -2956,7 +2994,7 @@ export default function PointPanel() {
                     role: 'cashier',
                     status: 'active',
                     pinCode: '',
-                    permissions: ['pos.create', 'cash.view']
+                    permissions: ['pos.create', 'cash.view', 'cash.open', 'cash.close']
                   });
                   setShowEmployeeModal(true);
                 }}
@@ -3043,23 +3081,15 @@ export default function PointPanel() {
                                 <Key className="w-3 h-3 text-amber-500" />
                                 Clave / PIN Caja:
                               </span>
-                              <span className="font-mono text-xs font-black bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800 tracking-widest">
-                                {revealedPins[emp.id] ? (emp.pin_code || 'Sin PIN') : '••••'}
+                              <span className="font-mono text-xs font-black bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800">
+                                {emp.pin_code ? 'PIN configurado' : 'Sin PIN'}
                               </span>
-                              <button
-                                type="button"
-                                onClick={() => setRevealedPins(prev => ({ ...prev, [emp.id]: !prev[emp.id] }))}
-                                className="p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                                title={revealedPins[emp.id] ? 'Ocultar PIN' : 'Ver PIN'}
-                              >
-                                {revealedPins[emp.id] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                              </button>
                             </div>
 
                             <div className="flex flex-wrap gap-1.5 mt-2">
                               {perms.map((p: string) => (
                                 <span key={p} className="text-[10px] font-bold bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700">
-                                  {p === 'pos.create' ? 'Mostrador POS' : p === 'cash.view' ? 'Arqueo Caja' : p === 'manifests.manage' ? 'Cierre Valijas' : p}
+                                  {p === 'pos.create' ? 'Mostrador POS' : p === 'cash.view' ? 'Ver Caja' : p === 'cash.open' ? 'Abrir Caja' : p === 'cash.close' ? 'Cerrar Caja' : p === 'manifests.manage' ? 'Cierre Valijas' : p}
                                 </span>
                               ))}
                             </div>
@@ -3117,7 +3147,96 @@ export default function PointPanel() {
         )}
 
         {/* ========================================================
-            TAB 7: LOCAL & PERFIL
+            TAB 7: TERMINALES VINCULADAS
+            ======================================================== */}
+        {currentTab === 'devices' && (
+          <div className="space-y-6 max-w-5xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-wider text-blue-600 dark:text-cyan-400">Seguridad del Point</p>
+                <h1 className="text-xl font-black text-slate-900 dark:text-white mt-1">Terminales vinculadas</h1>
+                <p className="text-xs text-slate-500 mt-1">Controla qué computadoras pueden entrar al mostrador de esta sucursal.</p>
+              </div>
+              <Link to="/point/login" className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black px-4 py-2.5 shadow-sm">
+                <Laptop className="w-4 h-4" />
+                Vincular otra terminal
+              </Link>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+                <p className="text-[10px] font-black uppercase text-slate-400">Activas</p>
+                <p className="text-2xl font-black text-emerald-600 mt-1">{devices.filter(d => d.status === 'active').length}</p>
+                <p className="text-[11px] text-slate-500 mt-1">Pueden abrir la terminal</p>
+              </div>
+              <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+                <p className="text-[10px] font-black uppercase text-slate-400">Revocadas</p>
+                <p className="text-2xl font-black text-slate-600 dark:text-slate-300 mt-1">{devices.filter(d => d.status === 'revoked').length}</p>
+                <p className="text-[11px] text-slate-500 mt-1">Ya no tienen acceso</p>
+              </div>
+              <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4">
+                <p className="text-[10px] font-black uppercase text-slate-400">Acceso</p>
+                <p className="text-sm font-black text-blue-700 dark:text-cyan-300 mt-2">PIN de empleado</p>
+                <p className="text-[11px] text-slate-500 mt-1">La contraseña maestra no se comparte</p>
+              </div>
+            </div>
+
+            <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+              <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-black text-slate-900 dark:text-white">Dispositivos registrados</h2>
+                  <p className="text-xs text-slate-500 mt-1">El token de seguridad nunca se muestra en este listado.</p>
+                </div>
+                <button onClick={loadData} className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500" title="Actualizar">
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
+
+              {devices.length === 0 ? (
+                <div className="p-10 text-center text-slate-400 text-xs">
+                  <Laptop className="w-9 h-9 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+                  No hay terminales vinculadas todavía. Usa “Vincular otra terminal” para autorizar una PC del local.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {devices.map(device => (
+                    <div key={device.id} className="p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${device.status === 'active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                          <Laptop className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-black text-slate-900 dark:text-white truncate">{device.device_name}</p>
+                            <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${device.status === 'active' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                              {device.status === 'active' ? 'Activa' : 'Revocada'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">{device.owner_email}</p>
+                          <p className="text-[11px] text-slate-400 mt-1">
+                            {device.distance_km != null ? `${Number(device.distance_km).toFixed(2)} km del Point` : 'Ubicación no registrada'}
+                            {' · '}
+                            {device.last_used_at ? `Último uso ${new Date(device.last_used_at).toLocaleString()}` : 'Sin uso registrado'}
+                          </p>
+                          {device.browser_info && <p className="text-[10px] text-slate-400 mt-1 truncate max-w-xl">{device.browser_info}</p>}
+                        </div>
+                      </div>
+                      {device.status === 'active' && (
+                        <button onClick={() => handleRevokeDevice(device)} className="self-end lg:self-center inline-flex items-center gap-1.5 rounded-xl border border-red-200 dark:border-red-900/60 px-3 py-2 text-xs font-black text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40">
+                          <Lock className="w-3.5 h-3.5" />
+                          Revocar acceso
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================
+            TAB 8: LOCAL & PERFIL
             ======================================================== */}
         {currentTab === 'profile' && (
           <div className="space-y-6 max-w-3xl">
@@ -3914,6 +4033,36 @@ export default function PointPanel() {
                       className="rounded text-blue-600"
                     />
                     <span>Ver arqueo y libro diario de caja</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={employeeForm.permissions.includes('cash.open')}
+                      onChange={e => {
+                        const next = e.target.checked
+                          ? [...employeeForm.permissions, 'cash.open']
+                          : employeeForm.permissions.filter(p => p !== 'cash.open');
+                        setEmployeeForm({ ...employeeForm, permissions: next });
+                      }}
+                      className="rounded text-emerald-600"
+                    />
+                    <span>Abrir turno y recibir fondo de caja</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={employeeForm.permissions.includes('cash.close')}
+                      onChange={e => {
+                        const next = e.target.checked
+                          ? [...employeeForm.permissions, 'cash.close']
+                          : employeeForm.permissions.filter(p => p !== 'cash.close');
+                        setEmployeeForm({ ...employeeForm, permissions: next });
+                      }}
+                      className="rounded text-amber-600"
+                    />
+                    <span>Cerrar turno y realizar arqueo</span>
                   </label>
 
                   <label className="flex items-center gap-2 cursor-pointer">
