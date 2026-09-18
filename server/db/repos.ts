@@ -70,6 +70,11 @@ export async function initDb() {
     await pool.query(fs.readFileSync(pointRuntimeSchemaPath, 'utf8'));
   }
 
+  const trackingLevelsSchemaPath = path.resolve(process.cwd(), 'migrations', 'V29__separate_warehouse_tracking.sql');
+  if (fs.existsSync(trackingLevelsSchemaPath)) {
+    await pool.query(fs.readFileSync(trackingLevelsSchemaPath, 'utf8'));
+  }
+
   await pool.query(`CREATE TABLE IF NOT EXISTS admin_settings (
     id INT PRIMARY KEY,
     settings_json JSON NULL,
@@ -1722,10 +1727,9 @@ export const ManifestRepo = {
       await conn.query(
         `UPDATE shipments
          SET status = 'at_hub',
-             status_label = CONCAT('En Almacén Hub (Ubicación: ', ?, ')'),
-             master_tracking_code = COALESCE(master_tracking_code, ?)
+             status_label = CONCAT('En Almacén Hub (Ubicación: ', ?, ')')
          WHERE manifest_id = ?`,
-        [location, `WH-${warehouseTracking}`, manifestId]
+        [location, manifestId]
       );
       await conn.query(
         `UPDATE point_operations po

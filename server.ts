@@ -12647,7 +12647,7 @@ app.get('/api/tracking/:code', async (req, res) => {
     const [shipmentRows]: any = await pool.query(
       `SELECT * FROM shipments
        WHERE tracking_code = ? OR provider_shipment_code = ? OR provider_tracking_code = ? OR order_number = ? OR id = ?
-       OR master_tracking_code = ? ${shipmentLookup}
+       OR (master_tracking_code = ? AND master_tracking_code NOT LIKE 'WH-%') ${shipmentLookup}
        LIMIT 1`,
       shipmentParams
     );
@@ -12700,7 +12700,7 @@ app.get('/api/tracking/:code', async (req, res) => {
     if (current.manifest_id) {
       try {
         const [manRows]: any = await pool.query(
-          `SELECT m.id, m.manifest_number, m.category, m.status, m.master_tracking_code, m.courier_name,
+          `SELECT m.id, m.manifest_number, m.category, m.status, m.master_tracking_code, m.warehouse_tracking, m.courier_name,
                   h_orig.name AS origin_hub_name, h_orig.city AS origin_hub_city,
                   h_dest.name AS destination_hub_name, h_dest.city AS destination_hub_city,
                   p.business_name AS point_name, p.city AS point_city
@@ -12717,6 +12717,7 @@ app.get('/api/tracking/:code', async (req, res) => {
             category: manRows[0].category,
             status: manRows[0].status,
             masterTrackingCode: manRows[0].master_tracking_code,
+            warehouseTrackingCode: manRows[0].warehouse_tracking,
             courierName: manRows[0].courier_name,
             originHub: `${manRows[0].origin_hub_name || 'Hub Origen'} (${manRows[0].origin_hub_city || ''})`,
             destinationHub: `${manRows[0].destination_hub_name || 'Hub SDQ Central'} (${manRows[0].destination_hub_city || 'Santo Domingo'})`,
@@ -12745,12 +12746,12 @@ app.get('/api/tracking/:code', async (req, res) => {
       updatedAt: current.updated_at || current.created_at,
       events: normalizedEvents,
       manifest: manifestInfo,
-      masterTrackingCode: current.master_tracking_code || manifestInfo?.masterTrackingCode || null,
+      masterTrackingCode: manifestInfo?.masterTrackingCode || null,
       isPointShipment: !!current.point_id,
       trackingLevels: {
         level1_client: current.tracking_code || code,
         level2_manifest: manifestInfo?.manifestNumber || null,
-        level3_master: current.master_tracking_code || manifestInfo?.masterTrackingCode || null,
+        level3_master: manifestInfo?.masterTrackingCode || null,
         masterCourier: manifestInfo?.courierName || courierName || null
       }
     });

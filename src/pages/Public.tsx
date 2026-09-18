@@ -283,7 +283,7 @@ const Tracking = () => {
                       </div>
                     )}
 
-                    <p className="text-gray-400 dark:text-gray-500 text-[11px] mt-2 font-medium">{new Date(ev.date).toLocaleString()}</p>
+                    <p className="text-gray-400 dark:text-gray-500 text-[11px] mt-2 font-medium">{ev.date ? new Date(ev.date).toLocaleString() : 'Fecha pendiente de actualización'}</p>
                   </div>
                 </div>
               ))}
