@@ -161,7 +161,7 @@ const Tracking = () => {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 pb-8 border-b border-gray-100 dark:border-gray-700 gap-4">
               <div>
                 <p className="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{t('code')}</p>
-                <p className="font-mono text-2xl font-black text-gray-900 dark:text-white">{data.trackingCode}</p>
+                <p className="font-mono text-2xl font-black text-gray-900 dark:text-white">{data.trackingType === 'manifest' ? (data.requestedManifest?.manifestNumber || data.trackingCode) : data.trackingCode}</p>
                 {data.destination && <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">{language === 'it' ? 'Destinazione' : language === 'en' ? 'Destination' : language === 'fr' ? 'Destination' : 'Destino'}: {data.destination}</p>}
                 {data.courier && <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Courier: <span className="font-black text-gray-800 dark:text-white">{data.courier}</span></p>}
               </div>
@@ -180,6 +180,26 @@ const Tracking = () => {
               <div className="rounded-2xl bg-violet-50/70 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/40 p-4"><p className="text-xs font-black uppercase text-violet-600 dark:text-violet-300 mb-1">Master del manifiesto</p><p className="font-mono font-black text-slate-900 dark:text-white break-all">{data.trackingLevels?.level3_master || 'Sin master'}</p></div>
               <div className="rounded-2xl bg-slate-50 dark:bg-dark-900/60 border border-slate-100 dark:border-gray-700 p-4"><p className="text-xs font-black uppercase text-slate-400 mb-1">Estado</p><p className="font-black text-slate-900 dark:text-white">{data.status}</p><p className={`text-xs font-bold mt-1 ${data.labelReady ? 'text-emerald-600' : 'text-slate-500 dark:text-slate-400'}`}>{data.labelReady ? 'Etiqueta disponible' : 'Etiqueta en preparación'}</p></div>
             </div>
+
+            {data.trackingType === 'manifest' && Array.isArray(data.manifestShipments) && data.manifestShipments.length > 0 && (
+              <div className="mb-8 rounded-2xl border border-cyan-100 dark:border-cyan-900/40 bg-cyan-50/60 dark:bg-cyan-950/20 p-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-wider text-cyan-700 dark:text-cyan-300">Paquetes de este manifiesto</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">El cliente conserva su tracking; aquí ves el lote operativo asociado.</p>
+                  </div>
+                  <span className="text-xs font-black text-cyan-700 dark:text-cyan-300">{data.manifestShipments.length} paquetes</span>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {data.manifestShipments.map((item: any) => (
+                    <a key={item.trackingCode} href={`/tracking?code=${encodeURIComponent(item.trackingCode)}`} className="flex items-center justify-between gap-3 rounded-xl border border-cyan-100 dark:border-cyan-900/40 bg-white/80 dark:bg-dark-900/40 px-3 py-2 hover:border-cyan-400 transition-colors">
+                      <span className="font-mono text-xs font-black text-slate-800 dark:text-white break-all">{item.trackingCode}</span>
+                      <span className="shrink-0 text-[10px] font-bold text-slate-500 dark:text-slate-400">{item.status}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Trayecto Geográfico de Hubs y Distribución */}
             <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 rounded-2xl p-5 mb-8 text-white shadow-xl">

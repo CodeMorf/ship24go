@@ -46,6 +46,12 @@ app.set('trust proxy', true); // real client IP behind nginx/CF
 // HTML shell: avoid CDN caching so script tags stay as type=module
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
+  if (req.secure || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
   const p = String(req.path || '');
   const isAsset = p.startsWith('/assets/') || p.startsWith('/brand/') || /\.(js|css|png|jpg|jpeg|svg|ico|woff2?|map)$/i.test(p);
   if (isAsset) {
@@ -413,6 +419,7 @@ type AuthTokenPayload = {
   isEmployee?: boolean;
   employeeId?: string;
   pointId?: string;
+  pointDeviceId?: string;
   employee?: {
     id: string;
     name?: string;
@@ -421,6 +428,50 @@ type AuthTokenPayload = {
     permissions?: string[];
   };
 };
+
+function hashPointDeviceToken(token: string): string {
+  return crypto.createHash('sha256').update(String(token || ''), 'utf8').digest('hex');
+}
+
+type PointRateLimitEntry = { windowStartedAt: number; failures: number; lockedUntil: number };
+const pointRateLimit = new Map<string, PointRateLimitEntry>();
+
+function enforcePointRateLimit(req: any, res: any, scope: string, limit = 5, windowMs = 15 * 60 * 1000): boolean {
+  const ip = String(req.ip || req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();
+  const key = `${scope}:${ip}`;
+  const now = Date.now();
+  const current = pointRateLimit.get(key);
+  if (!current || now - current.windowStartedAt >= windowMs) {
+    pointRateLimit.set(key, { windowStartedAt: now, failures: 0, lockedUntil: 0 });
+    return true;
+  }
+  if (current.lockedUntil > now) {
+    res.setHeader('Retry-After', Math.ceil((current.lockedUntil - now) / 1000));
+    res.status(429).json({ error: 'Demasiados intentos. Espera un momento antes de volver a intentarlo.' });
+    return false;
+  }
+  return true;
+}
+
+function registerPointAuthFailure(req: any, scope: string, limit = 5, windowMs = 15 * 60 * 1000) {
+  const ip = String(req.ip || req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();
+  const key = `${scope}:${ip}`;
+  const now = Date.now();
+  const current = pointRateLimit.get(key) || { windowStartedAt: now, failures: 0, lockedUntil: 0 };
+  if (now - current.windowStartedAt >= windowMs) {
+    current.windowStartedAt = now;
+    current.failures = 0;
+    current.lockedUntil = 0;
+  }
+  current.failures += 1;
+  if (current.failures >= limit) current.lockedUntil = now + 60 * 1000;
+  pointRateLimit.set(key, current);
+}
+
+function clearPointAuthFailures(req: any, scope: string) {
+  const ip = String(req.ip || req.headers?.['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();
+  pointRateLimit.delete(`${scope}:${ip}`);
+}
 
 function generateToken(payload: AuthTokenPayload): string {
   const now = Math.floor(Date.now() / 1000);
@@ -5577,6 +5628,20 @@ const authMiddleware = async (req: any, res: any, next: any) => {
       if (!pointEmployee || pointEmployee.status !== 'active') {
         return res.status(403).json({ error: 'El empleado ya no tiene acceso activo a este Point.' });
       }
+      if (point.status !== 'approved') {
+        return res.status(403).json({ error: 'Este Point no está aprobado para operar.' });
+      }
+      if (!decoded.pointDeviceId) {
+        return res.status(401).json({ error: 'La sesión no está ligada a una terminal autorizada.' });
+      }
+      const [deviceRows]: any = await pool.query(
+        `SELECT id FROM point_devices WHERE id = ? AND point_id = ? AND status = 'active' LIMIT 1`,
+        [decoded.pointDeviceId, decoded.pointId]
+      );
+      if (!deviceRows?.[0]) {
+        return res.status(401).json({ error: 'La terminal ya no está autorizada. Vincúlala nuevamente.' });
+      }
+      await pool.query(`UPDATE point_devices SET last_used_at = NOW() WHERE id = ?`, [decoded.pointDeviceId]);
       const parsedPermissions = safeJsonParse(pointEmployee.permissions, []);
       pointEmployeePermissions = Array.isArray(parsedPermissions) ? parsedPermissions.map(String) : [];
     }
@@ -5596,6 +5661,7 @@ const authMiddleware = async (req: any, res: any, next: any) => {
       pointId: point?.id || null,
       isPointEmployee: Boolean(pointEmployee),
       employeeId: pointEmployee?.id || null,
+      pointDeviceId: decoded.pointDeviceId || null,
       employeeRole: pointEmployee?.role || null,
       pointPermissions: pointEmployeePermissions,
       businessType: user.business_type,
@@ -6096,6 +6162,9 @@ app.get('/api/point/operations', authMiddleware, requirePointAccess('operations.
       recipient: typeof operation.recipient_json === 'string' ? JSON.parse(operation.recipient_json || '{}') : (operation.recipient_json || {}),
       paymentMethod: operation.point_payment_method || 'cash',
       manifestId: operation.manifest_id,
+      employeeId: operation.employee_id || null,
+      shiftId: operation.shift_id || null,
+      deviceId: operation.device_id || null,
       extra: typeof operation.provider_payload_json === 'string' ? JSON.parse(operation.provider_payload_json || '{}') : (operation.provider_payload_json || {}),
       createdAt: operation.created_at
     })) });
@@ -6137,8 +6206,23 @@ app.get('/api/point/branch/:pointId/employees-public', async (req, res) => {
 app.post('/api/point/auth/employee-login', async (req, res) => {
   try {
     const { pointId, employeeId, pinCode } = req.body || {};
-    if (!pointId || !employeeId || !pinCode) {
+    const deviceToken = String(req.body?.deviceToken || '').trim();
+    if (!pointId || !employeeId || !pinCode || !deviceToken) {
       return res.status(400).json({ error: 'Debes seleccionar la sucursal, el empleado e introducir el PIN.' });
+    }
+    const authScope = `employee-login:${String(pointId)}:${String(employeeId)}`;
+    if (!enforcePointRateLimit(req, res, authScope)) return;
+
+    const deviceTokenHash = hashPointDeviceToken(deviceToken);
+    const [deviceRows]: any = await pool.query(
+      `SELECT id FROM point_devices
+       WHERE point_id = ? AND status = 'active' AND device_token_hash = ?
+       LIMIT 1`,
+      [pointId, deviceTokenHash]
+    );
+    if (!deviceRows?.[0]) {
+      registerPointAuthFailure(req, authScope);
+      return res.status(401).json({ error: 'Esta terminal no está autorizada para la sucursal seleccionada.' });
     }
 
     const [empRows]: any = await pool.query(
@@ -6146,15 +6230,18 @@ app.post('/api/point/auth/employee-login', async (req, res) => {
       [employeeId, pointId]
     );
     if (!empRows || empRows.length === 0) {
+      registerPointAuthFailure(req, authScope);
       return res.status(404).json({ error: 'Empleado no encontrado en esta sucursal.' });
     }
 
     const emp = empRows[0];
     if (emp.status === 'suspended') {
+      registerPointAuthFailure(req, authScope);
       return res.status(403).json({ error: 'Este empleado se encuentra suspendido. Contacta al encargado del local.' });
     }
 
     if (String(emp.pin_code || '').trim() !== String(pinCode).trim()) {
+      registerPointAuthFailure(req, authScope);
       return res.status(401).json({ error: 'PIN o Clave de acceso incorrecto. Verifica los 4 dígitos.' });
     }
 
@@ -6163,6 +6250,9 @@ app.post('/api/point/auth/employee-login', async (req, res) => {
       return res.status(404).json({ error: 'Sucursal no encontrada.' });
     }
     const point = pointRows[0];
+    if (point.status !== 'approved') {
+      return res.status(403).json({ error: 'Este Point no está aprobado para operar.' });
+    }
 
     const user = await UserRepo.getById(point.user_id);
     if (!user) {
@@ -6177,6 +6267,7 @@ app.post('/api/point/auth/employee-login', async (req, res) => {
       isEmployee: true,
       employeeId: emp.id,
       pointId: point.id,
+      pointDeviceId: deviceRows[0].id,
       employee: {
         id: emp.id,
         name: emp.name,
@@ -6185,6 +6276,9 @@ app.post('/api/point/auth/employee-login', async (req, res) => {
         permissions: perms
       }
     });
+
+    clearPointAuthFailures(req, authScope);
+    await pool.query(`UPDATE point_devices SET last_used_at = NOW() WHERE id = ?`, [deviceRows[0].id]);
 
     const activeShift = await PointCashRepo.getActiveShift(point.id);
 
@@ -6263,6 +6357,8 @@ app.post('/api/point/devices/link', async (req, res) => {
     if (!ownerEmail || !pinOrPassword) {
       return res.status(400).json({ error: 'Ingresa el correo del dueño y su PIN o contraseña de autorización.' });
     }
+    const deviceAuthScope = `device-link:${String(ownerEmail).trim().toLowerCase()}`;
+    if (!enforcePointRateLimit(req, res, deviceAuthScope)) return;
 
     const cleanEmail = String(ownerEmail).trim().toLowerCase();
 
@@ -6292,6 +6388,7 @@ app.post('/api/point/devices/link', async (req, res) => {
     const pinMatches = empPinRows && empPinRows.length > 0;
 
     if (!passMatches && !pinMatches) {
+      registerPointAuthFailure(req, deviceAuthScope);
       return res.status(401).json({ error: 'PIN o Contraseña del dueño incorrecta. Acceso no autorizado.' });
     }
 
@@ -6329,17 +6426,18 @@ app.post('/api/point/devices/link', async (req, res) => {
 
     const deviceId = `pdev_${generateId()}`;
     const deviceToken = `dtk_${crypto.randomBytes(32).toString('hex')}`;
+    const deviceTokenHash = hashPointDeviceToken(deviceToken);
     const finalDeviceName = deviceName || `Terminal Mostrador - ${point.city || 'PC'}`;
 
     await pool.query(
       `INSERT INTO point_devices 
-       (id, point_id, device_name, device_token, owner_email, latitude, longitude, distance_km, browser_info, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+       (id, point_id, device_name, device_token, device_token_hash, owner_email, latitude, longitude, distance_km, browser_info, status)
+       VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, 'active')`,
       [
         deviceId,
         point.id,
         finalDeviceName,
-        deviceToken,
+        deviceTokenHash,
         cleanEmail,
         latitude ? Number(latitude) : null,
         longitude ? Number(longitude) : null,
@@ -6366,8 +6464,9 @@ app.post('/api/point/devices/link', async (req, res) => {
         ownerEmail: cleanEmail
       }
     });
+    clearPointAuthFailures(req, deviceAuthScope);
   } catch (err: any) {
-    console.error('[Device Link Error]:', err);
+    console.error('[Device Link Error]:', err?.code || err?.message || 'unknown');
     res.status(500).json({ error: 'Error al vincular el dispositivo.' });
   }
 });
@@ -6419,13 +6518,14 @@ app.post('/api/point/devices/verify', async (req, res) => {
     if (!deviceToken) {
       return res.status(400).json({ valid: false, error: 'Token de dispositivo no proporcionado.' });
     }
+    const deviceTokenHash = hashPointDeviceToken(deviceToken);
 
     const [devRows]: any = await pool.query(
       `SELECT d.*, p.business_name, p.city, p.country, p.formatted_address, p.phone, p.currency, p.status AS point_status
        FROM point_devices d
        JOIN points p ON d.point_id = p.id
-       WHERE d.device_token = ? AND d.status = 'active'`,
-      [deviceToken]
+       WHERE d.device_token_hash = ? AND d.status = 'active'`,
+      [deviceTokenHash]
     );
 
     if (!devRows || devRows.length === 0) {
@@ -6433,6 +6533,9 @@ app.post('/api/point/devices/verify', async (req, res) => {
     }
 
     const dev = devRows[0];
+    if (dev.point_status !== 'approved') {
+      return res.status(403).json({ valid: false, error: 'La sucursal no está aprobada para operar.' });
+    }
     if (pointId && dev.point_id !== pointId) {
       return res.status(403).json({ valid: false, error: 'El dispositivo no coincide con la sucursal vinculada.' });
     }
@@ -6463,7 +6566,7 @@ app.post('/api/point/devices/verify', async (req, res) => {
       employees: empRows || []
     });
   } catch (err: any) {
-    console.error('[Device Verify Error]:', err);
+    console.error('[Device Verify Error]:', err?.code || err?.message || 'unknown');
     res.status(500).json({ valid: false, error: 'Error al verificar dispositivo.' });
   }
 });
@@ -6475,14 +6578,17 @@ app.post('/api/point/devices/unlink', async (req, res) => {
     if (!deviceToken) {
       return res.status(400).json({ error: 'Token de dispositivo no proporcionado.' });
     }
+    const deviceAuthScope = `device-unlink:${hashPointDeviceToken(String(deviceToken))}`;
+    if (!enforcePointRateLimit(req, res, deviceAuthScope)) return;
+    const deviceTokenHash = hashPointDeviceToken(deviceToken);
 
     const [devRows]: any = await pool.query(
       `SELECT d.*, u.password_hash 
        FROM point_devices d
        JOIN points p ON d.point_id = p.id
        JOIN users u ON p.user_id = u.id
-       WHERE d.device_token = ?`,
-      [deviceToken]
+       WHERE d.device_token_hash = ?`,
+      [deviceTokenHash]
     );
 
     if (!devRows || devRows.length === 0) {
@@ -6499,13 +6605,15 @@ app.post('/api/point/devices/unlink', async (req, res) => {
       [dev.point_id, String(pinOrPassword).trim()]
     );
     if (!passMatches && (!empPinRows || empPinRows.length === 0)) {
+      registerPointAuthFailure(req, deviceAuthScope);
       return res.status(401).json({ error: 'PIN o Contraseña incorrecta para desvincular.' });
     }
 
     await pool.query(`UPDATE point_devices SET status = 'revoked' WHERE id = ?`, [dev.id]);
+    clearPointAuthFailures(req, deviceAuthScope);
     res.json({ success: true, message: 'Dispositivo desvinculado con éxito.' });
   } catch (err: any) {
-    console.error('[Device Unlink Error]:', err);
+    console.error('[Device Unlink Error]:', err?.code || err?.message || 'unknown');
     res.status(500).json({ error: 'Error al desvincular dispositivo.' });
   }
 });
@@ -6674,6 +6782,8 @@ app.post('/api/point/operations', authMiddleware, requirePointAccess('pos.create
         id: operationId,
         point_id: point.id,
         shipment_id: shipmentId,
+        employee_id: req.user.employeeId,
+        device_id: req.user.pointDeviceId,
         product_id: product.id,
         product_code: product.code,
         sale_amount: input.saleAmount,
@@ -6772,6 +6882,8 @@ app.get(['/api/point/manifests/current-valija', '/api/point/manifests/current-sa
 
 // 3. Crear Envío desde el Terminal POS de Mostrador
 app.post('/api/point/terminal/create-shipment', authMiddleware, requirePointAccess('pos.create'), async (req: any, res) => {
+  let shipmentCreatedForRollback: string | null = null;
+  let manifestForRollback: string | null = null;
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -6821,6 +6933,23 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, requirePointAcce
 
     const tariff = await TariffRepo.getById(tariffId);
     if (!tariff) return res.status(404).json({ error: 'Tarifa seleccionada no válida.' });
+
+    const [pointProductRows]: any = await pool.query(
+      `SELECT id FROM point_products WHERE code = ? AND is_active = 1 LIMIT 1`,
+      [tariff.product_type]
+    );
+    const productId = pointProductRows?.[0]?.id;
+    if (!productId) {
+      return res.status(409).json({ error: 'El producto de la tarifa aún no está habilitado para operaciones Point.' });
+    }
+
+    const activeShift = await PointCashRepo.getActiveShift(point.id);
+    if (req.user.isPointEmployee) {
+      if (!activeShift) return res.status(409).json({ error: 'Debes abrir tu turno de caja antes de registrar un envío.' });
+      if (activeShift.employee_id && activeShift.employee_id !== req.user.employeeId) {
+        return res.status(403).json({ error: 'El turno abierto pertenece a otro empleado.' });
+      }
+    }
 
     const weightKg = Math.max(0.1, Number(pkg?.weightKg || tariff.max_weight_kg || 0.5));
     const basePrice = Number(tariff.base_price || 0);
@@ -6877,6 +7006,7 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, requirePointAcce
     const prefix = isExportToUS ? 'S24US' : 'S24RD';
     const trackingCode = `${prefix}-${Date.now().toString(36).toUpperCase()}-${suffix}`;
     const shipmentId = generateId('shp_');
+    manifestForRollback = manifestId;
 
     const senderData = {
       name: String(sender?.name || point.contact_name).trim(),
@@ -6935,6 +7065,7 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, requirePointAcce
         })
       ]
     );
+    shipmentCreatedForRollback = shipmentId;
 
     // Insertar direcciones normalizadas
     await pool.query(
@@ -6970,19 +7101,14 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, requirePointAcce
 
     // Registrar en point_operations para comisiones y liquidación
     const operationId = generateId('pop_');
-    const [pointProductRows]: any = await pool.query(
-      `SELECT id FROM point_products WHERE code = ? AND is_active = 1 LIMIT 1`,
-      [tariff.product_type]
-    );
-    const productId = pointProductRows?.[0]?.id;
-    if (!productId) {
-      return res.status(409).json({ error: 'El producto de la tarifa aún no está habilitado para operaciones Point.' });
-    }
     await PointRepo.createOperation({
       id: operationId,
       point_id: point.id,
       shipment_id: shipmentId,
       product_id: productId,
+      employee_id: req.user.employeeId,
+      shift_id: activeShift?.id,
+      device_id: req.user.pointDeviceId,
       product_code: tariff.product_type,
       sale_amount: totalPrice,
       commission_amount: commission,
@@ -7000,6 +7126,10 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, requirePointAcce
       movementType: payMethod === 'cash' ? 'sale_cash' : 'sale_card',
       amount: collectCur === 'DOP' ? priceDop : totalPrice,
       currency: collectCur === 'DOP' ? 'DOP' : (tariff.currency || 'USD'),
+      shiftId: activeShift?.id,
+      employeeId: req.user.employeeId,
+      deviceId: req.user.pointDeviceId,
+      paymentMethod: payMethod,
       notes: `Venta Mostrador: ${tariff.product_name} | Cobrado: $${totalPrice.toFixed(2)} USD / RD$ ${priceDop.toFixed(2)} DOP (Tasa: ${fxRateUsdToDop.toFixed(2)}) | Modo: ${payMethod.toUpperCase()}`,
       createdBy: req.user.id
     });
@@ -7040,7 +7170,21 @@ app.post('/api/point/terminal/create-shipment', authMiddleware, requirePointAcce
       valija: sacaStatus
     });
   } catch (error: any) {
-    console.error('[Point Terminal Create Error]:', error);
+    if (shipmentCreatedForRollback) {
+      await pool.query('DELETE FROM point_cash_register WHERE shipment_id = ?', [shipmentCreatedForRollback]).catch(() => {});
+      await pool.query('DELETE FROM point_operations WHERE shipment_id = ?', [shipmentCreatedForRollback]).catch(() => {});
+      await pool.query('DELETE FROM tracking_events WHERE shipment_id = ?', [shipmentCreatedForRollback]).catch(() => {});
+      await pool.query('DELETE FROM shipment_addresses WHERE shipment_id = ?', [shipmentCreatedForRollback]).catch(() => {});
+      await pool.query('DELETE FROM shipment_packages WHERE shipment_id = ?', [shipmentCreatedForRollback]).catch(() => {});
+      await pool.query('DELETE FROM shipments WHERE id = ?', [shipmentCreatedForRollback]).catch(() => {});
+      if (manifestForRollback) {
+        await pool.query(
+          `UPDATE point_manifests SET total_items = (SELECT COUNT(*) FROM shipments WHERE manifest_id = ?) WHERE id = ?`,
+          [manifestForRollback, manifestForRollback]
+        ).catch(() => {});
+      }
+    }
+    console.error('[Point Terminal Create Error]:', error?.code || error?.message || 'unknown');
     res.status(500).json({ error: error?.message || 'No se pudo procesar el envío en el mostrador.' });
   }
 });
@@ -7176,7 +7320,7 @@ app.get('/api/point/manifests', authMiddleware, requirePointAccess('manifests.vi
 });
 
 // 6. Detalle de Manifiesto con sus Envíos Consolidados
-app.get('/api/point/manifests/:id', authMiddleware, async (req: any, res) => {
+app.get('/api/point/manifests/:id', authMiddleware, requirePointAccess('manifests.view'), async (req: any, res) => {
   try {
     const point = await PointRepo.getByUserId(req.user.id);
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
@@ -7262,7 +7406,8 @@ app.post('/api/point/cash/open-shift', authMiddleware, requirePointAccess('cash.
       employeeName,
       openingAmount: amount,
       notes: notes || null,
-      createdBy: req.user.id
+      createdBy: req.user.id,
+      deviceId: req.user.pointDeviceId
     });
 
     res.status(201).json({ success: true, shift: newShift, message: 'Turno de caja chica iniciado con éxito.' });
@@ -7319,8 +7464,8 @@ app.post('/api/point/cash/close-shift', authMiddleware, requirePointAccess('cash
     const [salesRows]: any = await pool.query(
       `SELECT COALESCE(SUM(amount), 0) AS shift_sales 
        FROM point_cash_register 
-       WHERE point_id = ? AND movement_type = 'sale_cash' AND created_at >= ?`,
-      [point.id, activeShift.opened_at]
+       WHERE point_id = ? AND shift_id = ? AND movement_type = 'sale_cash'`,
+      [point.id, activeShift.id]
     );
     const shiftSales = Number(salesRows[0]?.shift_sales || 0);
     const systemExpected = Number(activeShift.opening_cash_amount) + shiftSales;
@@ -7333,7 +7478,8 @@ app.post('/api/point/cash/close-shift', authMiddleware, requirePointAccess('cash
       countedCash: counted,
       systemExpected,
       notes: closingNotes || null,
-      createdBy: req.user.id
+      createdBy: req.user.id,
+      deviceId: req.user.pointDeviceId
     });
 
     res.json({
@@ -8325,6 +8471,10 @@ app.post('/api/hubs/manifests/deconsolidate', authMiddleware, requireHubAccess('
     const [mRows]: any = await pool.query('SELECT * FROM point_manifests WHERE id = ? LIMIT 1', [manifestId]);
     const manifest = mRows[0];
     if (!manifest) return res.status(404).json({ error: 'Manifiesto no encontrado.' });
+    const isHubSuperAdmin = req.user.role === 'super_admin' || (Array.isArray(req.user.permissions) && req.user.permissions.includes('*'));
+    if (!isHubSuperAdmin && req.user.assigned_hub_id !== manifest.destination_hub_id) {
+      return res.status(403).json({ error: 'El manifiesto no está asignado a tu Hub.' });
+    }
 
     const [manifestShipments]: any = await pool.query(
       'SELECT id, tracking_code FROM shipments WHERE manifest_id = ?',
@@ -12764,6 +12914,48 @@ app.get('/api/tracking/:code', async (req, res) => {
     const events = await TrackingEventRepo.getByShipmentId(shipment.id);
     const recipient = typeof current.recipient_json === 'string' ? JSON.parse(current.recipient_json) : current.recipient_json;
     const requestedLang = normalizeMailLanguage(req.query.lang || detectLanguageFromRequest(req));
+    let requestedManifestInfo: any = null;
+    let requestedManifestShipments: any[] = [];
+    if (requestedManifest) {
+      const [requestedManifestRows]: any = await pool.query(
+        `SELECT m.id, m.manifest_number, m.status, m.master_tracking_code, m.category,
+                m.origin_hub_id, m.destination_hub_id, m.total_items,
+                h_orig.name AS origin_hub_name, h_orig.city AS origin_hub_city,
+                h_dest.name AS destination_hub_name, h_dest.city AS destination_hub_city
+         FROM point_manifests m
+         LEFT JOIN hubs h_orig ON h_orig.id = m.origin_hub_id
+         LEFT JOIN hubs h_dest ON h_dest.id = m.destination_hub_id
+         WHERE m.id = ? LIMIT 1`,
+        [requestedManifest.id]
+      );
+      const requested = requestedManifestRows?.[0];
+      if (requested) {
+        requestedManifestInfo = {
+          id: requested.id,
+          manifestNumber: requested.manifest_number,
+          status: requested.status,
+          category: requested.category,
+          masterTrackingCode: requested.master_tracking_code,
+          totalItems: Number(requested.total_items || 0),
+          originHub: requested.origin_hub_name ? `${requested.origin_hub_name} (${requested.origin_hub_city || ''})` : null,
+          destinationHub: requested.destination_hub_name ? `${requested.destination_hub_name} (${requested.destination_hub_city || ''})` : null
+        };
+        const [requestedShipmentRows]: any = await pool.query(
+          `SELECT s.tracking_code, s.status, s.status_label
+           FROM shipment_manifest_links l
+           INNER JOIN shipments s ON s.id = l.shipment_id
+           WHERE l.manifest_id = ?
+           ORDER BY l.leg_number ASC, l.attached_at ASC, s.created_at ASC`,
+          [requested.id]
+        );
+        requestedManifestShipments = (requestedShipmentRows || []).map((row: any) => ({
+          trackingCode: row.tracking_code,
+          statusCode: row.status,
+          status: row.status_label || row.status || 'En proceso'
+        }));
+        requestedManifestInfo.totalItems = requestedManifestShipments.length || requestedManifestInfo.totalItems;
+      }
+    }
     
     // Mapear eventos a formato esperado por UI
     let normalizedEvents: any[] = events.map(e => ({
@@ -12857,6 +13049,8 @@ app.get('/api/tracking/:code', async (req, res) => {
       }
     }
 
+    const publicTrackingManifest = requestedManifestInfo || manifestInfo;
+
     res.json({
       trackingCode: current.tracking_code || code,
       requestedTrackingCode: code,
@@ -12874,14 +13068,16 @@ app.get('/api/tracking/:code', async (req, res) => {
       events: normalizedEvents,
       manifest: manifestInfo,
       manifestHistory,
-      masterTrackingCode: manifestInfo?.masterTrackingCode || null,
+      masterTrackingCode: publicTrackingManifest?.masterTrackingCode || null,
       isPointShipment: !!current.point_id,
       trackingLevels: {
         level1_client: current.tracking_code || code,
-        level2_manifest: manifestInfo?.manifestNumber || null,
-        level3_master: manifestInfo?.masterTrackingCode || null,
-        masterCourier: manifestInfo?.courierName || courierName || null
-      }
+        level2_manifest: publicTrackingManifest?.manifestNumber || null,
+        level3_master: publicTrackingManifest?.masterTrackingCode || null,
+        masterCourier: publicTrackingManifest?.courierName || courierName || null
+      },
+      requestedManifest: requestedManifestInfo,
+      manifestShipments: requestedManifestShipments
     });
   } catch (error) {
     console.error('[Diagnóstico Interno] Error tracking:', error);

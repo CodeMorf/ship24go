@@ -391,7 +391,7 @@ export default function PointLogin() {
   // 5. Manejar click en el keypad numérico
   const handleKeypadPress = (digit: string) => {
     setError('');
-    if (pinCode.length < 6) {
+    if (pinCode.length < 4) {
       setPinCode(prev => prev + digit);
     }
   };
@@ -439,7 +439,7 @@ export default function PointLogin() {
       setError(locale === 'en' ? 'Select cashier name.' : 'Por favor selecciona tu nombre de cajero.');
       return;
     }
-    if (!pinCode || pinCode.length < 4) {
+    if (!pinCode || pinCode.length !== 4) {
       setError(locale === 'en' ? 'Enter your 4-digit PIN.' : 'Digita tu PIN numérico de 4 dígitos.');
       return;
     }
@@ -450,7 +450,8 @@ export default function PointLogin() {
       const res = await (api as any).loginPointEmployee({
         pointId: linkedBranch.id,
         employeeId: selectedEmployeeId,
-        pinCode
+        pinCode,
+        deviceToken: linkedBranch.deviceToken
       });
 
       if (res.token) {

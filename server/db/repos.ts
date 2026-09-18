@@ -80,6 +80,11 @@ export async function initDb() {
     await pool.query(fs.readFileSync(multiLegTrackingSchemaPath, 'utf8'));
   }
 
+  const pointSecurityCashAuditSchemaPath = path.resolve(process.cwd(), 'migrations', 'V31__point_security_cash_audit.sql');
+  if (fs.existsSync(pointSecurityCashAuditSchemaPath)) {
+    await pool.query(fs.readFileSync(pointSecurityCashAuditSchemaPath, 'utf8'));
+  }
+
   await pool.query(`CREATE TABLE IF NOT EXISTS admin_settings (
     id INT PRIMARY KEY,
     settings_json JSON NULL,
@@ -1256,13 +1261,16 @@ export const PointRepo = {
   async createOperation(operation: any): Promise<void> {
     await pool.query(
       `INSERT INTO point_operations (
-        id, point_id, shipment_id, product_id, product_code, sale_amount,
+        id, point_id, shipment_id, employee_id, shift_id, device_id, product_id, product_code, sale_amount,
         commission_amount, currency, status, receipt_code, idempotency_key
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         operation.id,
         operation.point_id,
         operation.shipment_id,
+        operation.employee_id || null,
+        operation.shift_id || null,
+        operation.device_id || null,
         operation.product_id,
         operation.product_code,
         operation.sale_amount,
@@ -1635,6 +1643,15 @@ export const ManifestRepo = {
     );
     const nextLeg = Number(legRows?.[0]?.next_leg || 1);
 
+    if (shipment.manifest_id && shipment.manifest_id !== manifestId) {
+      await pool.query(
+        `UPDATE shipment_manifest_links
+         SET detached_at = COALESCE(detached_at, NOW())
+         WHERE shipment_id = ? AND manifest_id = ? AND detached_at IS NULL`,
+        [shipmentId, shipment.manifest_id]
+      );
+    }
+
     await pool.query(
       `INSERT IGNORE INTO shipment_manifest_links
          (id, shipment_id, manifest_id, leg_number, attached_at)
@@ -1742,6 +1759,12 @@ export const ManifestRepo = {
       );
 
       for (const shipment of shipmentRows) {
+        await conn.query(
+          `UPDATE shipment_manifest_links
+           SET detached_at = COALESCE(detached_at, NOW())
+           WHERE shipment_id = ? AND manifest_id = ? AND detached_at IS NULL`,
+          [shipment.id, previousManifestId]
+        );
         const [legRows]: any = await conn.query(
           `SELECT COALESCE(MAX(leg_number), 0) + 1 AS next_leg
            FROM shipment_manifest_links WHERE shipment_id = ?`,
@@ -2334,20 +2357,28 @@ export const PointCashRepo = {
     movementType: string;
     amount: number;
     currency?: string;
+    shiftId?: string;
+    employeeId?: string;
+    deviceId?: string;
+    paymentMethod?: string;
     notes?: string;
     createdBy?: string;
   }): Promise<void> {
     await pool.query(
-      `INSERT INTO point_cash_register (id, point_id, operation_id, shipment_id, movement_type, amount, currency, notes, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO point_cash_register (id, point_id, operation_id, shipment_id, shift_id, employee_id, device_id, movement_type, amount, currency, payment_method, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         generateId('csh_'),
         data.pointId,
         data.operationId || null,
         data.shipmentId || null,
+        data.shiftId || null,
+        data.employeeId || null,
+        data.deviceId || null,
         data.movementType || 'sale_cash',
         data.amount,
         data.currency || 'USD',
+        data.paymentMethod || null,
         data.notes || null,
         data.createdBy || null
       ]
@@ -2369,6 +2400,7 @@ export const PointCashRepo = {
     openingAmount: number;
     notes?: string;
     createdBy?: string;
+    deviceId?: string;
   }): Promise<any> {
     const shiftId = generateId('csh_shift_');
     await pool.query(
@@ -2383,7 +2415,11 @@ export const PointCashRepo = {
       amount: data.openingAmount,
       currency: 'USD',
       notes: `Fondo Caja Chica Inicial ($${Number(data.openingAmount).toFixed(2)}) - Apertura por ${data.employeeName}${data.notes ? ` - ${data.notes}` : ''}`,
-      createdBy: data.createdBy
+      createdBy: data.createdBy,
+      shiftId,
+      employeeId: data.employeeId,
+      deviceId: data.deviceId,
+      paymentMethod: 'cash'
     });
 
     return await this.getActiveShift(data.pointId);
@@ -2398,6 +2434,7 @@ export const PointCashRepo = {
     systemExpected: number;
     notes?: string;
     createdBy?: string;
+    deviceId?: string;
   }): Promise<any> {
     const difference = Number(data.countedCash) - Number(data.systemExpected);
     await pool.query(
@@ -2429,7 +2466,11 @@ export const PointCashRepo = {
       amount: -Number(data.countedCash),
       currency: 'USD',
       notes: `Cierre de Caja por ${data.closedByName} (Contado: $${Number(data.countedCash).toFixed(2)}, Esperado: $${Number(data.systemExpected).toFixed(2)}, Dif: $${difference.toFixed(2)})`,
-      createdBy: data.createdBy
+      createdBy: data.createdBy,
+      shiftId: data.shiftId,
+      employeeId: data.closedByEmployeeId,
+      deviceId: data.deviceId,
+      paymentMethod: 'cash'
     });
 
     const [rows]: any = await pool.query(`SELECT * FROM point_cash_shifts WHERE id = ?`, [data.shiftId]);
@@ -2462,14 +2503,27 @@ export const PointCashRepo = {
 
     // Si hay turno activo, calcular ventas de efectivo desde que se abrió
     let shiftCashSales = 0;
+    let shiftDrawerCash = 0;
     if (activeShift) {
       const [shiftRows]: any = await pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS shift_cash 
-         FROM point_cash_register 
-         WHERE point_id = ? AND movement_type = 'sale_cash' AND created_at >= ?`,
-        [pointId, activeShift.opened_at]
+      `SELECT COALESCE(SUM(amount), 0) AS shift_cash
+         FROM point_cash_register
+         WHERE point_id = ? AND shift_id = ? AND movement_type = 'sale_cash'`,
+        [pointId, activeShift.id]
       );
       shiftCashSales = Number(shiftRows[0]?.shift_cash || 0);
+      const [drawerRows]: any = await pool.query(
+        `SELECT COALESCE(SUM(
+           CASE
+             WHEN movement_type IN ('cash_opening', 'sale_cash') THEN amount
+             WHEN movement_type IN ('cash_drop', 'payout_commission', 'cash_closing') THEN -ABS(amount)
+             ELSE 0
+           END
+         ), 0) AS drawer_cash
+         FROM point_cash_register WHERE point_id = ? AND shift_id = ?`,
+        [pointId, activeShift.id]
+      );
+      shiftDrawerCash = Number(drawerRows[0]?.drawer_cash || 0);
     }
 
     const [allOperations]: any = await pool.query(
@@ -2492,7 +2546,7 @@ export const PointCashRepo = {
       shiftCashSalesToday: shiftCashSales,
       cardSalesToday: Number(cashRows[0]?.card_sales_today || 0),
       totalRevenueToday: Number(cashRows[0]?.total_revenue_today || 0),
-      currentDrawerCash: Number(cashRows[0]?.current_drawer_cash || 0),
+      currentDrawerCash: activeShift ? shiftDrawerCash : Number(cashRows[0]?.current_drawer_cash || 0),
       movementsCountToday: Number(cashRows[0]?.movements_count_today || 0),
       operationsToday: Number(allOperations[0]?.operations_today || 0),
       salesToday: Number(allOperations[0]?.sales_today || 0),
