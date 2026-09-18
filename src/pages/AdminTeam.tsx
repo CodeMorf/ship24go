@@ -37,6 +37,7 @@ interface TeamMember {
   role_id?: string;
   role_name?: string;
   status: string;
+  assigned_hub_id?: string | null;
   permissions: string[];
   created_at?: string;
 }
@@ -125,6 +126,7 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
   const [activeTab, setActiveTab] = useState<'members' | 'roles'>('members');
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [roles, setRoles] = useState<RoleItem[]>([]);
+  const [hubs, setHubs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -141,6 +143,7 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
     avatar_url: '',
     role: 'support',
     role_id: '',
+    assigned_hub_id: '',
     status: 'active',
     password: ''
   });
@@ -156,13 +159,15 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [teamRes, rolesRes] = await Promise.all([
+      const [teamRes, rolesRes, hubsRes] = await Promise.all([
         (api as any).getAdminTeam(),
-        (api as any).getAdminRoles()
+        (api as any).getAdminRoles(),
+        (api as any).getAdminTeamHubs()
       ]);
       const validMembers = (teamRes.members || []).filter((m: any) => m.role !== 'customer' && m.role !== 'point');
       setMembers(validMembers);
       setRoles(rolesRes.roles || []);
+      setHubs(hubsRes.hubs || []);
     } catch (err: any) {
       setNotice({ text: err.message || 'Error al cargar datos del equipo.', type: 'error' });
     } finally {
@@ -195,10 +200,26 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
     showNotification(`¡Enlace copiado! Los Points registrados con este link quedarán asignados a ${member.name}.`, 'success');
   };
 
+  const roleRequiresHub = (roleSlug: string, roleId?: string) => {
+    const selectedRole = roles.find(r => r.slug === roleSlug || r.id === roleId);
+    return ['driver', 'hub_operator'].includes(roleSlug)
+      || Boolean(selectedRole?.permissions?.some(permission => permission.startsWith('hubs.')));
+  };
+
+  const getHubLabel = (hubId?: string | null) => {
+    if (!hubId) return 'Sin ubicación asignada';
+    const hub = hubs.find(item => item.id === hubId);
+    return hub ? `${hub.code || hub.name} · ${hub.city || hub.country || 'Hub'}` : 'Ubicación no encontrada';
+  };
+
   const handleSaveMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!memberForm.name || !memberForm.email) {
       showNotification('Nombre y correo son requeridos.', 'error');
+      return;
+    }
+    if (roleRequiresHub(memberForm.role, memberForm.role_id) && !memberForm.assigned_hub_id) {
+      showNotification('Asigna una ubicación operativa antes de guardar este rol.', 'error');
       return;
     }
 
@@ -242,6 +263,7 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
       avatar_url: m.avatar_url || '',
       role: m.role,
       role_id: m.role_id || '',
+      assigned_hub_id: m.assigned_hub_id || '',
       status: m.status || 'active',
       password: ''
     });
@@ -443,6 +465,7 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                   avatar_url: '',
                   role: roles[1]?.slug || 'support',
                   role_id: roles[1]?.id || '',
+                  assigned_hub_id: '',
                   status: 'active',
                   password: ''
                 });
@@ -528,6 +551,14 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                     </div>
                   </div>
 
+                  <div className="flex items-center gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-700/60 text-[11px]">
+                    <ShieldCheck className="w-3.5 h-3.5 text-cyan-500 shrink-0" />
+                    <span className="text-slate-400">Ubicación:</span>
+                    <span className={`font-bold truncate ${m.assigned_hub_id ? 'text-cyan-600 dark:text-cyan-300' : 'text-amber-500'}`}>
+                      {getHubLabel(m.assigned_hub_id)}
+                    </span>
+                  </div>
+
                   <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-700/60">
                     <div className="text-[11px] text-slate-400">
                       {m.role === 'super_admin' ? (
@@ -580,6 +611,7 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                     <th className="py-3.5 px-4">Usuario</th>
                     <th className="py-3.5 px-4">Contacto</th>
                     <th className="py-3.5 px-4">Rol Asignado</th>
+                    <th className="py-3.5 px-4">Ubicación</th>
                     <th className="py-3.5 px-4">Permisos</th>
                     <th className="py-3.5 px-4">Estado</th>
                     <th className="py-3.5 px-4 text-right">Acciones</th>
@@ -588,14 +620,14 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60 text-sm">
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-400">
+                      <td colSpan={7} className="py-12 text-center text-slate-400">
                         <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
                         Cargando equipo...
                       </td>
                     </tr>
                   ) : filteredMembers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-400">
+                      <td colSpan={7} className="py-12 text-center text-slate-400">
                         No se encontraron integrantes que coincidan con la búsqueda.
                       </td>
                     </tr>
@@ -634,6 +666,12 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                         <td className="py-3.5 px-4">
                           <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold border ${getRoleBadgeColor(m.role)}`}>
                             {m.role_name || m.role}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className={`inline-flex items-center gap-1.5 text-xs font-bold ${m.assigned_hub_id ? 'text-cyan-600 dark:text-cyan-300' : 'text-amber-500'}`}>
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            {getHubLabel(m.assigned_hub_id)}
                           </span>
                         </td>
                         <td className="py-3.5 px-4">
@@ -964,7 +1002,10 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                       setMemberForm({
                         ...memberForm,
                         role: selectedRole?.slug || e.target.value,
-                        role_id: selectedRole?.id || ''
+                        role_id: selectedRole?.id || '',
+                        assigned_hub_id: roleRequiresHub(selectedRole?.slug || e.target.value, selectedRole?.id)
+                          ? memberForm.assigned_hub_id
+                          : ''
                       });
                     }}
                     className="w-full px-3 py-2.5 rounded-xl text-xs sm:text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none h-11"
@@ -987,6 +1028,35 @@ export default function AdminTeam({ currentUser }: { currentUser?: any }) {
                     <option value="active">Activo</option>
                     <option value="suspended">Suspendido</option>
                   </select>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 p-3.5">
+                <div className="flex items-start gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-cyan-500 mt-0.5 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-cyan-700 dark:text-cyan-300 mb-1">
+                      Ubicación operativa asignada por Admin
+                    </label>
+                    <select
+                      value={memberForm.assigned_hub_id}
+                      onChange={(e) => setMemberForm({ ...memberForm, assigned_hub_id: e.target.value })}
+                      required={roleRequiresHub(memberForm.role, memberForm.role_id)}
+                      className="w-full px-3 py-2.5 rounded-xl text-xs sm:text-sm bg-white dark:bg-slate-900 border border-cyan-500/30 text-slate-900 dark:text-white focus:ring-2 focus:ring-cyan-500 focus:outline-none h-11"
+                    >
+                      <option value="">Sin ubicación asignada</option>
+                      {hubs.map(hub => (
+                        <option key={hub.id} value={hub.id}>
+                          {hub.code || hub.name} · {hub.city || hub.country || 'Hub'}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5 leading-tight">
+                      {roleRequiresHub(memberForm.role, memberForm.role_id)
+                        ? 'Obligatoria para Drivers y operadores con permisos de Hub. El usuario no puede cambiarla.'
+                        : 'Controla desde qué Hub podrá operar este colaborador. El backend conserva la decisión del administrador.'}
+                    </p>
+                  </div>
                 </div>
               </div>
 

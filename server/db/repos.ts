@@ -976,7 +976,7 @@ export const TeamRepo = {
   async getMembers(): Promise<any[]> {
     const [rows]: any = await pool.query(`
       SELECT 
-        u.id, u.email, u.name, u.phone, u.avatar_url, u.role, u.role_id, u.custom_permissions, u.status, u.created_at, u.updated_at,
+        u.id, u.email, u.name, u.phone, u.avatar_url, u.role, u.role_id, u.custom_permissions, u.assigned_hub_id, u.status, u.created_at, u.updated_at,
         r.name as role_name, r.slug as role_slug, r.permissions as role_permissions, r.description as role_description
       FROM users u
       LEFT JOIN roles r ON u.role_id = r.id OR u.role = r.slug
@@ -1002,6 +1002,7 @@ export const TeamRepo = {
         avatar_url: u.avatar_url || null,
         role: u.role,
         role_id: u.role_id,
+        assigned_hub_id: u.assigned_hub_id || null,
         role_name: u.role_name || (u.role === 'super_admin' ? 'Super Administrador' : (u.role === 'support' ? 'Soporte' : u.role)),
         status: u.status,
         permissions,
@@ -1023,8 +1024,8 @@ export const TeamRepo = {
     const avatarUrl = data.avatar_url || null;
 
     await pool.query(
-      `INSERT INTO users (id, email, password_hash, name, phone, avatar_url, country, currency, role, role_id, custom_permissions, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, email, password_hash, name, phone, avatar_url, country, currency, role, role_id, custom_permissions, assigned_hub_id, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         data.email.toLowerCase().trim(),
@@ -1037,11 +1038,12 @@ export const TeamRepo = {
         role,
         roleId,
         customPerms,
+        data.assigned_hub_id || null,
         data.status || 'active'
       ]
     );
 
-    const [rows]: any = await pool.query('SELECT id, email, name, phone, avatar_url, role, role_id, status, created_at FROM users WHERE id = ?', [id]);
+    const [rows]: any = await pool.query('SELECT id, email, name, phone, avatar_url, role, role_id, assigned_hub_id, status, created_at FROM users WHERE id = ?', [id]);
     return rows[0];
   },
 
@@ -1054,6 +1056,7 @@ export const TeamRepo = {
     if (data.avatar_url !== undefined) { fields.push('avatar_url = ?'); values.push(data.avatar_url || null); }
     if (data.role !== undefined) { fields.push('role = ?'); values.push(data.role); }
     if (data.role_id !== undefined) { fields.push('role_id = ?'); values.push(data.role_id); }
+    if (data.assigned_hub_id !== undefined) { fields.push('assigned_hub_id = ?'); values.push(data.assigned_hub_id || null); }
     if (data.status !== undefined) { fields.push('status = ?'); values.push(data.status); }
     if (data.password) {
       fields.push('password_hash = ?');
@@ -1069,7 +1072,7 @@ export const TeamRepo = {
       await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, values);
     }
 
-    const [rows]: any = await pool.query('SELECT id, email, name, phone, avatar_url, role, role_id, status, created_at FROM users WHERE id = ?', [id]);
+    const [rows]: any = await pool.query('SELECT id, email, name, phone, avatar_url, role, role_id, assigned_hub_id, status, created_at FROM users WHERE id = ?', [id]);
     return rows[0];
   },
 

@@ -13078,6 +13078,63 @@ function processAvatarInput(input: any, identifier: string): string | null {
   return trimmed;
 }
 
+class TeamAssignmentError extends Error {
+  statusCode = 400;
+}
+
+async function resolveTeamAssignedHub(data: any): Promise<string | null> {
+  const roleSlug = String(data.role || '').trim();
+  let rolePermissions: string[] = [];
+
+  if (data.role_id || roleSlug) {
+    const [roleRows]: any = await pool.query(
+      'SELECT slug, permissions FROM roles WHERE id = ? OR slug = ? LIMIT 1',
+      [data.role_id || roleSlug, roleSlug || data.role_id || '']
+    );
+    const role = roleRows?.[0];
+    if (role?.slug && !roleSlug) data.role = role.slug;
+    if (role?.permissions) {
+      try {
+        rolePermissions = typeof role.permissions === 'string' ? JSON.parse(role.permissions) : role.permissions;
+      } catch {
+        rolePermissions = [];
+      }
+    }
+  }
+
+  let customPermissions: string[] = [];
+  if (Array.isArray(data.custom_permissions)) {
+    customPermissions = data.custom_permissions.map((permission: any) => String(permission));
+  } else if (typeof data.custom_permissions === 'string') {
+    try {
+      const parsed = JSON.parse(data.custom_permissions);
+      customPermissions = Array.isArray(parsed) ? parsed.map((permission: any) => String(permission)) : [];
+    } catch {
+      customPermissions = [];
+    }
+  }
+  const allPermissions = [...rolePermissions, ...customPermissions];
+  const requiresHub = ['driver', 'hub_operator'].includes(roleSlug || String(data.role || '').trim())
+    || allPermissions.some(permission => permission.startsWith('hubs.'));
+  const assignedHubId = data.assigned_hub_id ? String(data.assigned_hub_id).trim() : '';
+
+  if (requiresHub && !assignedHubId) {
+    throw new TeamAssignmentError('Los conductores y operadores con permisos de Hub deben tener una ubicación operativa asignada por un administrador.');
+  }
+
+  if (!assignedHubId) return null;
+
+  const [hubRows]: any = await pool.query(
+    'SELECT id FROM hubs WHERE id = ? AND is_active = 1 LIMIT 1',
+    [assignedHubId]
+  );
+  if (!hubRows?.[0]) {
+    throw new TeamAssignmentError('La ubicación operativa seleccionada no existe o está inactiva.');
+  }
+
+  return requiresHub ? assignedHubId : null;
+}
+
 // ========== TEAM MEMBERS ENDPOINTS ==========
 app.get('/api/admin/team', authMiddleware, requireAdminOrPermission('team.view'), async (_req: any, res) => {
   try {
@@ -13090,9 +13147,19 @@ app.get('/api/admin/team', authMiddleware, requireAdminOrPermission('team.view')
   }
 });
 
+app.get('/api/admin/team/hubs', authMiddleware, requireAdminOrPermission('team.view'), async (_req: any, res) => {
+  try {
+    const hubs = await HubRepo.getAllAdmin();
+    res.json({ hubs: (hubs || []).filter((hub: any) => Number(hub.is_active ?? 1) === 1) });
+  } catch (error) {
+    console.error('Error fetching team assignment hubs:', error);
+    res.status(500).json({ error: 'No se pudieron cargar las ubicaciones operativas.' });
+  }
+});
+
 app.post('/api/admin/team', authMiddleware, requireAdminOrPermission('team.manage'), async (req: any, res) => {
   try {
-    const { email, name, password, role, role_id, phone, custom_permissions, status, avatar_url } = req.body;
+    const { email, name, password, role, role_id, phone, custom_permissions, assigned_hub_id, status, avatar_url } = req.body;
     if (!email || !name || !password || String(password).length < 12) {
       return res.status(400).json({ error: 'Nombre, correo electrónico y una contraseña de al menos 12 caracteres son requeridos.' });
     }
@@ -13101,6 +13168,7 @@ app.post('/api/admin/team', authMiddleware, requireAdminOrPermission('team.manag
       return res.status(400).json({ error: 'Ya existe un usuario con este correo electrónico.' });
     }
     const finalAvatar = processAvatarInput(avatar_url, String(email).toLowerCase().trim());
+    const assignedHubId = await resolveTeamAssignedHub({ role, role_id, custom_permissions, assigned_hub_id });
     const member = await TeamRepo.createMember({
       email: String(email).toLowerCase().trim(),
       name: String(name).trim(),
@@ -13110,18 +13178,29 @@ app.post('/api/admin/team', authMiddleware, requireAdminOrPermission('team.manag
       phone: phone || '',
       avatar_url: finalAvatar,
       custom_permissions,
+      assigned_hub_id: assignedHubId,
       status: status || 'active'
     });
     res.json({ member, message: 'Miembro agregado exitosamente al equipo.' });
   } catch (error) {
     console.error('Error creating team member:', error);
-    res.status(500).json({ error: 'No se pudo registrar el miembro del equipo.' });
+    const statusCode = Number((error as any)?.statusCode) === 400 ? 400 : 500;
+    res.status(statusCode).json({ error: statusCode === 400 ? (error as any).message : 'No se pudo registrar el miembro del equipo.' });
   }
 });
 
 app.put('/api/admin/team/:id', authMiddleware, requireAdminOrPermission('team.manage'), async (req: any, res) => {
   try {
-    const { name, phone, role, role_id, status, password, custom_permissions, avatar_url } = req.body;
+    const { name, phone, role, role_id, status, password, custom_permissions, assigned_hub_id, avatar_url } = req.body;
+    const existingMember = await UserRepo.getById(req.params.id);
+    if (!existingMember) return res.status(404).json({ error: 'Integrante del equipo no encontrado.' });
+    const assignedHubId = await resolveTeamAssignedHub({
+      ...existingMember,
+      role: role !== undefined ? role : existingMember.role,
+      role_id: role_id !== undefined ? role_id : existingMember.role_id,
+      custom_permissions: custom_permissions !== undefined ? custom_permissions : existingMember.custom_permissions,
+      assigned_hub_id: assigned_hub_id !== undefined ? assigned_hub_id : existingMember.assigned_hub_id
+    });
     let avatarUpdate: string | null | undefined = undefined;
     if (avatar_url !== undefined) {
       avatarUpdate = processAvatarInput(avatar_url, req.params.id);
@@ -13134,12 +13213,14 @@ app.put('/api/admin/team/:id', authMiddleware, requireAdminOrPermission('team.ma
       role_id,
       status,
       password,
-      custom_permissions
+      custom_permissions,
+      assigned_hub_id: assignedHubId
     });
     res.json({ member, message: 'Miembro del equipo actualizado exitosamente.' });
   } catch (error) {
     console.error('Error updating team member:', error);
-    res.status(500).json({ error: 'No se pudo actualizar el integrante del equipo.' });
+    const statusCode = Number((error as any)?.statusCode) === 400 ? 400 : 500;
+    res.status(statusCode).json({ error: statusCode === 400 ? (error as any).message : 'No se pudo actualizar el integrante del equipo.' });
   }
 });
 

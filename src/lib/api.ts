@@ -202,6 +202,7 @@ export const api = {
   rejectAdminPaymentReceipt: (id: string, data: any = {}) => fetchAPI(`/admin/payment-receipts/${id}/reject`, { method: 'POST', body: JSON.stringify(data) }),
   adminAdjustClientBalance: (id: string, data: any) => fetchAPI(`/admin/clients/${id}/adjust-balance`, { method: 'POST', body: JSON.stringify(data) }),
   getAdminTeam: () => fetchAPI('/admin/team'),
+  getAdminTeamHubs: () => fetchAPI('/admin/team/hubs'),
   createAdminTeamMember: (data: any) => fetchAPI('/admin/team', { method: 'POST', body: JSON.stringify(data) }),
   updateAdminTeamMember: (id: string, data: any) => fetchAPI(`/admin/team/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteAdminTeamMember: (id: string) => fetchAPI(`/admin/team/${id}`, { method: 'DELETE' }),
