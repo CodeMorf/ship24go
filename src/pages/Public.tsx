@@ -174,10 +174,11 @@ const Tracking = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-10">
-              <div className="rounded-2xl bg-slate-50 dark:bg-dark-900/60 border border-slate-100 dark:border-gray-700 p-4"><p className="text-xs font-black uppercase text-slate-400 mb-1">Tracking</p><p className="font-mono font-black text-slate-900 dark:text-white break-all">{data.providerTrackingCode || data.trackingCode}</p></div>
-              <div className="rounded-2xl bg-slate-50 dark:bg-dark-900/60 border border-slate-100 dark:border-gray-700 p-4"><p className="text-xs font-black uppercase text-slate-400 mb-1">Estado</p><p className="font-black text-slate-900 dark:text-white">{data.status}</p></div>
-              <div className="rounded-2xl bg-slate-50 dark:bg-dark-900/60 border border-slate-100 dark:border-gray-700 p-4"><p className="text-xs font-black uppercase text-slate-400 mb-1">Etiqueta</p><p className={`font-black ${data.labelReady ? 'text-emerald-600' : 'text-slate-500 dark:text-slate-400'}`}>{data.labelReady ? (language === 'it' ? 'Disponibile' : 'Disponible') : (language === 'it' ? 'In preparazione' : 'En preparación')}</p></div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-10">
+              <div className="rounded-2xl bg-blue-50/70 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 p-4"><p className="text-xs font-black uppercase text-blue-600 dark:text-cyan-300 mb-1">Tracking del cliente</p><p className="font-mono font-black text-slate-900 dark:text-white break-all">{data.trackingLevels?.level1_client || data.trackingCode}</p></div>
+              <div className="rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 p-4"><p className="text-xs font-black uppercase text-indigo-600 dark:text-indigo-300 mb-1">Tracking del manifiesto</p><p className="font-mono font-black text-slate-900 dark:text-white break-all">{data.trackingLevels?.level2_manifest || 'Sin manifiesto'}</p></div>
+              <div className="rounded-2xl bg-violet-50/70 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/40 p-4"><p className="text-xs font-black uppercase text-violet-600 dark:text-violet-300 mb-1">Master del manifiesto</p><p className="font-mono font-black text-slate-900 dark:text-white break-all">{data.trackingLevels?.level3_master || 'Sin master'}</p></div>
+              <div className="rounded-2xl bg-slate-50 dark:bg-dark-900/60 border border-slate-100 dark:border-gray-700 p-4"><p className="text-xs font-black uppercase text-slate-400 mb-1">Estado</p><p className="font-black text-slate-900 dark:text-white">{data.status}</p><p className={`text-xs font-bold mt-1 ${data.labelReady ? 'text-emerald-600' : 'text-slate-500 dark:text-slate-400'}`}>{data.labelReady ? 'Etiqueta disponible' : 'Etiqueta en preparación'}</p></div>
             </div>
 
             {/* Trayecto Geográfico de Hubs y Distribución */}

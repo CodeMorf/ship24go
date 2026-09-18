@@ -12629,12 +12629,27 @@ app.get('/api/shipments', authMiddleware, async (req: any, res) => {
 // Tracking Público
 app.get('/api/tracking/:code', async (req, res) => {
   try {
-    const { code } = req.params;
+    const code = String(req.params.code || '').trim();
+    const [manifestRows]: any = await pool.query(
+      `SELECT id, manifest_number, master_tracking_code
+       FROM point_manifests
+       WHERE manifest_number = ? OR master_tracking_code = ?
+       LIMIT 1`,
+      [code, code]
+    );
+    const requestedManifest = manifestRows?.[0] || null;
+    const shipmentLookup = requestedManifest
+      ? `OR manifest_id = ?`
+      : '';
+    const shipmentParams = requestedManifest
+      ? [code, code, code, code, code, code, requestedManifest.id]
+      : [code, code, code, code, code, code];
     const [shipmentRows]: any = await pool.query(
       `SELECT * FROM shipments
        WHERE tracking_code = ? OR provider_shipment_code = ? OR provider_tracking_code = ? OR order_number = ? OR id = ?
+       OR master_tracking_code = ? ${shipmentLookup}
        LIMIT 1`,
-      [code, code, code, code, code]
+      shipmentParams
     );
     const shipment = shipmentRows?.[0];
     if (!shipment) {
@@ -12716,6 +12731,8 @@ app.get('/api/tracking/:code', async (req, res) => {
 
     res.json({
       trackingCode: current.tracking_code || code,
+      requestedTrackingCode: code,
+      trackingType: requestedManifest ? 'manifest' : 'shipment',
       providerTrackingCode: current.provider_tracking_code || '',
       status: current.status_label || 'Creado',
       statusCode: current.status || 'created',
