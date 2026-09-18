@@ -7604,7 +7604,9 @@ app.get('/api/point/employees', authMiddleware, requirePointAccess('team.view', 
     if (!point) return res.status(404).json({ error: 'No se encontró el Point afiliado.' });
 
     const [rows]: any = await pool.query(
-      `SELECT id, point_id, name, email, phone, role, permissions, status, pin_code, created_at, updated_at 
+      `SELECT id, point_id, name, email, phone, role, permissions, status,
+              CASE WHEN pin_code IS NOT NULL AND pin_code <> '' THEN 1 ELSE 0 END AS pin_configured,
+              created_at, updated_at
        FROM point_employees WHERE point_id = ? ORDER BY (role = 'manager') DESC, created_at DESC`,
       [point.id]
     );

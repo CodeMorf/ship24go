@@ -3082,7 +3082,7 @@ export default function PointPanel() {
                                 Clave / PIN Caja:
                               </span>
                               <span className="font-mono text-xs font-black bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-lg border border-amber-200 dark:border-amber-800">
-                                {emp.pin_code ? 'PIN configurado' : 'Sin PIN'}
+                                {emp.pin_configured ? 'PIN configurado' : 'Sin PIN'}
                               </span>
                             </div>
 
